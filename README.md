@@ -36,12 +36,12 @@ In this project we analyse data from r/r B-ALL patients at the infusion product 
 |2   | A     |   `2_AllPatients.qmd` | 2   | A     |  `1_Other_Fig.qmd` |
 |2   | B     |   `2_AllPatients.qmd` | 2   | B     |  `2_AllPatients.qmd`   |
 |2   | C     |   `2_AllPatients.qmd & 3.1_CompCluster_IP.qmd` ` | 2   | C     |  `2_AllPatients.qmd`   |
-|2   | D     |   `2_AllPatients.qmd` | 2   | D     |  `10_Validations.Rmd`  |
+|2   | D     |   `2_AllPatients.qmd` | 2   | D     |  `10_Validations.qmd`  |
 |2   | E     |   `2_AllPatients.qmd` | 2   | E     |  `6_Signature_Act.qmd`  |
 |2   | F     |  `3.1_CompCluster_IP.qmd`  | 2   | F     |  `6_Signature_Ton.qmd`  |
-|2   | G     |  `10_Validations.Rmd`  | 2   | G     |  `10_Validations.Rmd`  |
-|2   | H     |  `10_Validations.Rmd` | 2   | H     |  `6_Signature_Exh_IP.qmd`  |
-|2   | I     |  `10_Validations.Rmd`  |    |      |   |
+|2   | G     |  `10_Validations.qmd`  | 2   | G     |  `10_Validations.qmd`  |
+|2   | H     |  `10_Validations.qmd` | 2   | H     |  `6_Signature_Exh_IP.qmd`  |
+|2   | I     |  `10_Validations.qmd`  |    |      |   |
 |2   | J     |  `6_Signature_Exh_IP.qmd`   |   |     |   |
 |2   | K     |  `6_Signature_Exh_IP.qmd`  |   |     |   |
 |2   | L     |  [mereulab Repo](https://github.com/mereulab/CAR-T_Figures)   |    |      |   |
@@ -60,8 +60,8 @@ In this project we analyse data from r/r B-ALL patients at the infusion product 
 |4   | E     |  `7_gammadelta.qmd`  |    |      |   |
 |4   | F     |  `7_gammadelta.qmd`  |    |      |   |
 |4   | G     |  `7_gammadelta.qmd`  |    |      |   |
-|4   | H     |  `10_Validations.Rmd`  |    |      |   |
-|4   | I     |  `10_Validations.Rmd`  |    |      |   |
+|4   | H     |  `10_Validations.qmd`  |    |      |   |
+|4   | I     |  `10_Validations.qmd`  |    |      |   |
 
 
 
