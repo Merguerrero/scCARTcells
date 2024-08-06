@@ -1,0 +1,137 @@
+---
+title: "Pablo Questions"
+author:
+  - name: Mercedes Guerrero-Murillo
+    email: mguerrero@carrerasresearch.org
+date: now
+format: 
+  html:
+    toc: true
+    self-contained: true
+    anchor-sections: true
+    smooth-scroll: true
+    code-copy: true
+    code-overflow: wrap
+    date-format: "dddd MMM D, YYYY - HH:mm A"
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, cache.lazy = FALSE)
+memory.limit()
+```
+
+```{r load packages, message=FALSE, warning=FALSE}
+library(Seurat)
+library(ggplot2)
+library(ggalluvial)
+library(grid)
+library(plyr)
+library(forcats)
+library(see)
+library(gghalves)
+library(viridis)
+library(stringr)
+library(RColorBrewer)
+library(kableExtra)
+library(ggpubr)
+library(rstatix)
+library(tidyr)
+library(dplyr)
+library(openxlsx)
+library(clusterProfiler)
+library(EnhancedVolcano)
+```
+
+```{r colors}
+cols2 <- c(
+  "CD4+ Naive T cells" = "#33A02C",
+  "CD4+ CEntral/Effector memory T cells (CM/EM)" = "#B2DF8A",
+  "CD8+ cytotoxic T cells" = "#185B88",
+  "CD8+ Effector T cells (E)" = "#1F78B4",
+  "CD8+ Eff/Mem T cells (EM)" = "#A6CEE3",
+  "Early prolif: MCM3/5/7+ PCNA+ T cells" = "#FB9A99",
+  "Late prolif: histones enriched MKI67+ T cells" = "#E31A1C",
+  "Late prolif: CCNB1/2+ CDK1+ T cells" = "#CAB2D6",
+  "Late prolif: STMN1+ BIRC5+" = "#FDBF6F",
+  "Ribosomal/Mitochondrial/Degraded cells" = "#FF7F00",
+  "gamma-delta T cells" = "#6A3D9A"
+)
+
+cols3 <- c("CAR+" = "#66c2a5", "CAR-" = "#fc8d62")
+cols4 <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51")
+cols5 <- c("IP" = "#4E6AAB", "Peak" = "#e78ac3")
+cols6 <- c("CD4" = "#147D2C", "CD8" = "#F5C936", "Unknown" = "#7f7f7f")
+cols7 <- c("G1" = "#F8766D", "G2M" = "#00BA38", "S" = "#619CFF")
+cols8 <- c("#E69F00FF", "#56B4E9FF", "#009E73FF", "#F0E442FF")
+
+theme_set(theme_minimal())
+```
+
+# Kinetics patitents (Fig 1B)
+
+```{r}
+kinetics <- read.xlsx("./data/CART-kinetics.xlsx", sheet = 1)
+
+kinetics_long <- gather(kinetics, Timepoint, CART, IP:W4)
+kinetics_long$Timepoint <- as.factor(kinetics_long$Timepoint)
+kinetics_long$CART <- as.numeric(kinetics_long$CART)
+kinetics_long$CART2 <- ifelse(kinetics_long$Timepoint == "IP", NA, kinetics_long$CART)
+kinetics_long$CART3 <- ifelse(kinetics_long$Timepoint != "IP", NA, kinetics_long$CART)
+
+ggplot(kinetics_long, aes(x = Timepoint), na.rm = TRUE) +
+  geom_point(aes(x = Timepoint, y = CART2)) +
+  geom_point(aes(x = Timepoint, y = CART3), col = "#9D2626", size = 3) +
+  geom_line(
+    data = . %>%
+      mutate(Timepoint = as.numeric(Timepoint)) %>%
+      group_by(Patient) %>%
+      summarise(
+        x1 = list(spline(Timepoint, CART2, n = 50, method = "natural")[["x"]]),
+        y1 = list(spline(Timepoint, CART2, n = 50, method = "natural")[["y"]])
+      ) %>%
+      tidyr::unnest(),
+    aes(x = x1, y = y1)
+  ) +
+  theme_minimal() +
+  facet_grid(rows = vars(Patient)) +
+  ylim(-4, 40)
+```
+
+
+# Alluvial patients (Fig S1A)
+
+```{r}
+# SAMPLES!!! - NOT PT
+data <- read.csv("patients_information.csv")
+
+data$CARproduct <- factor(data$CARproduct, levels = c("varni-cel", "axi-cel", "tisa-cel"))
+data$Sample <- factor(data$Sample, levels = c("Product", "Follow-up"))
+data$Technology <- factor(data$Technology, levels = c("Multiomics", "FACS cytometry", "Spectral cytometry"))
+
+# Crear el gráfico aluvial
+library(easyalluvial)
+library(parcats)
+library(reticulate)
+library(plotly)
+
+p <- alluvial_wide(data[, 2:6], max_variables = 5)
+parcats(p, data_input = data[, 2:6], marginal_histograms = FALSE)
+
+# manual save, open in viewer -> show in new window -> chrome -> print web as pdf :D
+```
+
+# Load data
+
+```{r}
+integrated.obj <- readRDS("integrated.nd.obj.rds")
+Idents(integrated.obj) <- factor(x = Idents(integrated.obj), levels = c("CD8+ Eff/Mem T cells (EM)", "CD8+ Effector T cells (E)", "CD8+ cytotoxic T cells", "CD4+ CEntral/Effector memory T cells (CM/EM)", "CD4+ Naive T cells", "gamma-delta T cells", "Late prolif: CCNB1/2+ CDK1+ T cells", "Early prolif: MCM3/5/7+ PCNA+ T cells", "Late prolif: histones enriched MKI67+ T cells", "Late prolif: STMN1+ BIRC5+", "Ribosomal/Mitochondrial/Degraded cells"))
+```
+
+
+
+# Session Info
+
+```{r}
+sessionInfo()
+```

@@ -1,0 +1,360 @@
+---
+title: "DEG summary"
+author:
+  - name: Mercedes Guerrero-Murillo
+    email: mguerrero@carrerasresearch.org
+date: now
+format: 
+  html:
+    toc: true
+    self-contained: true
+    anchor-sections: true
+    smooth-scroll: true
+    code-copy: true
+    code-overflow: wrap
+    date-format: "dddd MMM D, YYYY - HH:mm A"
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, cache.lazy = FALSE)
+memory.limit()
+```
+
+```{r load packages, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(ggrepel)
+library(tidyverse)
+library(Seurat)
+library(clusterProfiler)
+```
+
+```{r colors}
+cols2 <- c(
+  "CD4+ Naive T cells" = "#33A02C",
+  "CD4+ CEntral/Effector memory T cells (CM/EM)" = "#B2DF8A",
+  "CD8+ cytotoxic T cells" = "#185B88",
+  "CD8+ Effector T cells (E)" = "#1F78B4",
+  "CD8+ Eff/Mem T cells (EM)" = "#A6CEE3",
+  "Early prolif: MCM3/5/7+ PCNA+ T cells" = "#FB9A99",
+  "Late prolif: histones enriched MKI67+ T cells" = "#E31A1C",
+  "Late prolif: CCNB1/2+ CDK1+ T cells" = "#CAB2D6",
+  "Late prolif: STMN1+ BIRC5+" = "#FDBF6F",
+  "Ribosomal/Mitochondrial/Degraded cells" = "#FF7F00",
+  "gamma-delta T cells" = "#6A3D9A"
+)
+
+cols3 <- c("CAR+" = "#66c2a5", "CAR-" = "#fc8d62")
+cols4 <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51")
+cols5 <- c("IP" = "#4E6AAB", "Peak" = "#e78ac3")
+cols6 <- c("CD4" = "#147D2C", "CD8" = "#F5C936", "Unknown" = "#7f7f7f")
+cols7 <- c("G1" = "#F8766D", "G2M" = "#00BA38", "S" = "#619CFF")
+cols8 <- c("#E69F00FF", "#56B4E9FF", "#009E73FF", "#F0E442FF")
+
+
+cols2 <- c(
+  "All" = "#ffafcc", "CD4" = "#147D2C", "CD8" = "#F5C936", "CD4+ Naive T cells" = "#33A02C",
+  "CD4+ CEntral/Effector memory T cells (CM/EM)" = "#B2DF8A",
+  "CD8+ cytotoxic T cells" = "#185B88",
+  "CD8+ Effector T cells (E)" = "#1F78B4",
+  "CD8+ Eff/Mem T cells (EM)" = "#A6CEE3",
+  "Early prolif: MCM3/5/7+ PCNA+ T cells" = "#FB9A99",
+  "Late prolif: histones enriched MKI67+ T cells" = "#E31A1C",
+  "Late prolif: CCNB1/2+ CDK1+ T cells" = "#CAB2D6",
+  "Late prolif: STMN1+ BIRC5+" = "#FDBF6F",
+  "Ribosomal/Mitochondrial/Degraded cells" = "#FF7F00",
+  "gamma-delta T cells" = "#6A3D9A"
+)
+
+theme_set(theme_minimal())
+```
+
+# scCART cluster review IP
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+DEG_RES <- list.files(path = ".", pattern = "ann_IP", full.names = TRUE)
+lista_datos <- list()
+for (archivo in DEG_RES) {
+  datos <- read.csv(archivo, header = TRUE)
+  lista_datos[[archivo]] <- datos
+}
+datos_combinados <- do.call(rbind, lista_datos)
+markers <- datos_combinados
+library(ggplot2)
+markers$FC_sign <- ifelse(markers$log2FoldChange > 0, "UpRegulated", "DownRegulated")
+
+markers$log2FoldChange <- as.numeric(markers$log2FoldChange)
+markers$Analisis <- as.factor(markers$Analisis)
+
+
+ggplot(markers, aes(x = log2FoldChange, y = Analisis, color = FC_sign)) +
+  geom_point(position = position_jitter(height = 0.4)) +
+  scale_color_manual(values = c("UpRegulated" = "#f1515e", "DownRegulated" = "#1dbde6")) +
+  geom_tile(aes(x = 0, height = 0.85, width = 1, fill = Analisis), col = "grey") +
+  scale_fill_manual(values = cols2) +
+  geom_text_repel(data = subset(markers, log2FoldChange > 2.5 | log2FoldChange < -2.5), aes(label = hgnc_symbol), max.overlaps = Inf) +
+  theme_minimal() +
+  ggtitle("IP")
+```
+
+
+## GSEA
+
+```{r}
+library(msigdbr)
+
+m_t2g <- msigdbr(species = "Homo sapiens", category = "H") %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  as.data.frame()
+m_t2g <- m_t2g[!duplicated(m_t2g), ]
+head(m_t2g)
+
+markers <- markers[markers$padj < 0.05, ]
+
+markers_list <- markers %>%
+  arrange(desc(log2FoldChange)) %>%
+  group_split(Analisis) %>%
+  lapply(function(sub_df) {
+    setNames(sub_df$log2FoldChange, sub_df$hgnc_symbol)
+  })
+
+xx <- compareCluster(markers_list[5:7], enricher, TERM2GENE = m_t2g)
+
+if (!is.null(xx)) {
+  dotplot(xx, showCategory = 20)
+}
+```
+
+
+# scCART cluster review Peak
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+DEG_RES <- list.files(path = ".", pattern = "ann_Peak", full.names = TRUE)
+lista_datos <- list()
+for (archivo in DEG_RES) {
+  datos <- read.csv(archivo, header = TRUE)
+  lista_datos[[archivo]] <- datos
+}
+datos_combinados <- do.call(rbind, lista_datos)
+markers <- datos_combinados
+library(ggplot2)
+markers$FC_sign <- ifelse(markers$log2FoldChange > 0, "UpRegulated", "DownRegulated")
+markers$log2FoldChange <- as.numeric(markers$log2FoldChange)
+markers$Analisis <- as.factor(markers$Analisis)
+
+ggplot(markers, aes(x = log2FoldChange, y = Analisis, color = FC_sign)) +
+  geom_point(position = position_jitter(height = 0.4)) +
+  scale_color_manual(values = c("UpRegulated" = "#f1515e", "DownRegulated" = "#1dbde6")) +
+  geom_tile(aes(x = 0, height = 0.85, width = 1, fill = Analisis), col = "grey") +
+  scale_fill_manual(values = cols2) +
+  geom_text_repel(data = subset(markers, log2FoldChange > 2.5 | log2FoldChange < -2.5), aes(label = hgnc_symbol), max.overlaps = Inf) +
+  theme_minimal() +
+  ggtitle("Peak")
+```
+
+
+# scCART cluster review CARpos
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+DEG_RES <- list.files(path = ".", pattern = "ann_CAR[^-].*\\.csv$", full.names = TRUE)
+lista_datos <- list()
+for (archivo in DEG_RES) {
+  datos <- read.csv(archivo, header = TRUE)
+  lista_datos[[archivo]] <- datos
+}
+datos_combinados <- do.call(rbind, lista_datos)
+markers <- datos_combinados
+library(ggplot2)
+markers$FC_sign <- ifelse(markers$log2FoldChange > 0, "UpRegulated", "DownRegulated")
+markers$log2FoldChange <- as.numeric(markers$log2FoldChange)
+markers$Analisis <- as.factor(markers$Analisis)
+
+ggplot(markers, aes(x = log2FoldChange, y = Analisis, color = FC_sign)) +
+  geom_point(position = position_jitter(height = 0.4)) +
+  scale_color_manual(values = c("UpRegulated" = "#f1515e", "DownRegulated" = "#1dbde6")) +
+  geom_tile(aes(x = 0, height = 0.85, width = 1, fill = Analisis), col = "grey") +
+  scale_fill_manual(values = cols2) +
+  geom_text_repel(data = subset(markers, log2FoldChange > 6 | log2FoldChange < -5), aes(label = hgnc_symbol), max.overlaps = Inf) +
+  theme_minimal() +
+  ggtitle("CAR+")
+```
+
+
+# scCART cluster review CARneg
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+DEG_RES <- list.files(path = ".", pattern = "ann_CAR[^+].*\\.csv$", full.names = TRUE)
+lista_datos <- list()
+for (archivo in DEG_RES) {
+  datos <- read.csv(archivo, header = TRUE)
+  lista_datos[[archivo]] <- datos
+}
+datos_combinados <- do.call(rbind, lista_datos)
+markers <- datos_combinados
+library(ggplot2)
+markers$FC_sign <- ifelse(markers$log2FoldChange > 0, "UpRegulated", "DownRegulated")
+markers$log2FoldChange <- as.numeric(markers$log2FoldChange)
+markers$Analisis <- as.factor(markers$Analisis)
+
+ggplot(markers, aes(x = log2FoldChange, y = Analisis, color = FC_sign)) +
+  geom_point(position = position_jitter(height = 0.4)) +
+  scale_color_manual(values = c("UpRegulated" = "#f1515e", "DownRegulated" = "#1dbde6")) +
+  geom_tile(aes(x = 0, height = 0.85, width = 1, fill = Analisis), col = "grey") +
+  scale_fill_manual(values = cols2) +
+  geom_text_repel(data = subset(markers, log2FoldChange > 5 | log2FoldChange < -5), aes(label = hgnc_symbol), max.overlaps = Inf) +
+  theme_minimal() +
+  ggtitle("CAR-")
+```
+
+# All DEG
+
+```{r}
+DEG_RES <- list.files(path = ".", pattern = "ann_(IP|Peak|CAR-|CAR\\+)\\.csv$", full.names = TRUE)
+lista_datos <- list()
+for (archivo in DEG_RES) {
+  datos <- read.csv(archivo, header = TRUE)
+  datos$Analisis2 <- archivo
+  lista_datos[[archivo]] <- datos
+}
+datos_combinados <- do.call(rbind, lista_datos)
+markers <- datos_combinados
+
+library(ggplot2)
+markers$FC_sign <- ifelse(markers$log2FoldChange > 0, "UpRegulated", "DownRegulated")
+markers$log2FoldChange <- as.numeric(markers$log2FoldChange)
+markers$Analisis2 <- as.factor(markers$Analisis2)
+
+ggplot(markers[abs(markers$log2FoldChange) > 0.5, ], aes(x = log2FoldChange, y = Analisis2, color = FC_sign)) +
+  geom_point(position = position_jitter(height = 0.4), size = 0.3) +
+  scale_color_manual(values = c("UpRegulated" = "#f1515e", "DownRegulated" = "#1dbde6")) +
+  geom_tile(aes(x = 0, height = 0.85, width = 1, fill = Analisis2), col = "grey") +
+  scale_fill_manual(values = cols2) +
+  geom_text_repel(data = subset(markers, log2FoldChange > 5 | log2FoldChange < -5), aes(label = hgnc_symbol), max.overlaps = Inf, size = 1.2) +
+  theme_minimal() +
+  ggtitle("ALL")
+
+pdf("Volcano_piled.pdf", height = 3)
+last_plot()
+dev.off()
+```
+
+## ALL GSEA
+
+```{r}
+library(msigdbr)
+m_t2g <- msigdbr(species = "Homo sapiens", category = "H") %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  as.data.frame()
+m_t2g <- m_t2g[!duplicated(m_t2g), ]
+head(m_t2g)
+
+markers_sig <- markers[markers$padj < 0.05, ]
+
+gene_lists <- list()
+gene_lists2 <- list()
+
+split_markers <- split(markers_sig, markers_sig$Analisis2)
+
+for (nivel in names(split_markers)) {
+  subset <- split_markers[[nivel]]
+  original_gene_list <- subset$log2FoldChange
+  names(original_gene_list) <- subset$hgnc_symbol
+  gene_list <- na.omit(original_gene_list)
+  gene_list <- sort(gene_list, decreasing = TRUE)
+
+  gene_lists[[nivel]] <- gene_list
+  gene_lists2[[nivel]] <- names(gene_list)
+}
+
+xx <- compareCluster(gene_lists, GSEA, TERM2GENE = m_t2g)
+
+ggplot(xx, showCategory = xx@compareClusterResult$Description, aes(NES, fct_reorder(Description, NES), fill = pvalue)) +
+  geom_col() +
+  scale_fill_gradientn(colours = c("#f7ca64", "#46bac2", "#7e62a3")) +
+  xlab("Normalized Enrichment Score") +
+  ylab(NULL) +
+  facet_grid(~Cluster)
+
+pdf("GSEA_piled.pdf")
+last_plot()
+dev.off()
+```
+
+
+```{r,eval=TRUE}
+# Agrupar los p-valores por gen y análisis
+df_grouped <- markers %>%
+  group_by(hgnc_symbol, Analisis2) %>%
+  summarise(Pvalor = mean(padj))
+
+# Pivote del dataframe agrupado para obtener el formato deseado
+df_pivot <- df_grouped %>%
+  pivot_wider(names_from = Analisis2, values_from = Pvalor)
+
+
+colnames(df_pivot) <- c("Gene", "CARneg", "CARpos", "IP", "Peak")
+
+df_pivot_2 <- as.data.frame(df_pivot)
+
+ggplot(df_pivot_2, aes(x = -log(IP, 10), y = -log(Peak, 10))) +
+  geom_point(aes(colour = IP < 0.05 & Peak < 0.05),
+    show.legend = FALSE
+  ) +
+  geom_text_repel(data = subset(df_pivot_2, IP < 0.00005 & Peak < 0.00005), aes(label = Gene), max.overlaps = Inf) +
+  theme_minimal()
+
+ggplot(df_pivot_2, aes(x = -log(CARpos, 10), y = -log(CARneg, 10))) +
+  geom_point(aes(colour = CARpos < 0.05 & CARneg < 0.05),
+    show.legend = FALSE
+  ) +
+  geom_text_repel(data = subset(df_pivot_2, CARpos < 0.00000000005 & CARneg < 0.00000000005), aes(label = Gene), max.overlaps = Inf) +
+  theme_minimal()
+```
+
+#Scatter FC
+
+```{r}
+df_pivot <- markers[, c(1, 3, 11)]
+df_pivot <- df_pivot[!duplicated(df_pivot), ]
+
+df_pivot <- spread(df_pivot, Analisis2, log2FoldChange)
+
+ggplot(df_pivot, aes(x = `./ann_CAR+.csv`, y = `./ann_CAR-.csv`)) +
+  geom_point()
+
+ggplot(df_pivot, aes(x = `./ann_IP.csv`, y = `./ann_Peak.csv`)) +
+  geom_point()
+
+
+p <- ggplot(df_pivot, aes(x = `./ann_CAR+.csv`, y = `./ann_CAR-.csv`, label = hgnc_symbol)) +
+  geom_point(alpha = 0.5, size = 0.5) +
+  geom_hline(yintercept = 1, color = "gray") +
+  geom_hline(yintercept = -1, color = "gray") +
+  geom_vline(xintercept = 1, color = "gray") +
+  geom_vline(xintercept = -1, color = "gray") +
+  theme_minimal() +
+  xlab("CARpos") +
+  ylab("CARneg")
+p
+library(plotly)
+ggplotly(p)
+
+p2 <- ggplot(df_pivot, aes(x = `./ann_IP.csv`, y = `./ann_Peak.csv`)) +
+  geom_point(alpha = 0.5, size = 0.5) +
+  geom_hline(yintercept = 1, color = "gray") +
+  geom_hline(yintercept = -1, color = "gray") +
+  geom_vline(xintercept = 1, color = "gray") +
+  geom_vline(xintercept = -1, color = "gray") +
+  theme_minimal() +
+  xlab("IP") +
+  ylab("Peak")
+p2
+ggplotly(p2)
+```
+
+
+# Session Info
+
+```{r}
+sessionInfo()
+```

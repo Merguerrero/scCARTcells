@@ -1,0 +1,477 @@
+---
+title: "Signature Tonic Signaling CBueno genes"
+author:
+  - name: Mercedes Guerrero-Murillo
+    email: mguerrero@carrerasresearch.org
+date: now
+format: 
+  html:
+    toc: true
+    self-contained: true
+    anchor-sections: true
+    smooth-scroll: true
+    code-copy: true
+    code-overflow: wrap
+    date-format: "dddd MMM D, YYYY - HH:mm A"
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, cache.lazy = FALSE)
+memory.limit()
+```
+
+```{r load packages, message=FALSE, warning=FALSE}
+library(Seurat)
+library(ggplot2)
+library(ggalluvial)
+library(grid)
+library(forcats)
+library(see)
+library(dplyr)
+library(gghalves)
+library(viridis)
+library(stringr)
+library(RColorBrewer)
+library(kableExtra)
+library(ggpubr)
+library(rstatix)
+library(clusterProfiler)
+library(EnhancedVolcano)
+library(introdataviz)
+```
+
+```{r colors}
+cols2 <- c(
+  "CD4+ Naive T cells" = "#33A02C",
+  "CD4+ CEntral/Effector memory T cells (CM/EM)" = "#B2DF8A",
+  "CD8+ cytotoxic T cells" = "#185B88",
+  "CD8+ Effector T cells (E)" = "#1F78B4",
+  "CD8+ Eff/Mem T cells (EM)" = "#A6CEE3",
+  "Early prolif: MCM3/5/7+ PCNA+ T cells" = "#FB9A99",
+  "Late prolif: histones enriched MKI67+ T cells" = "#E31A1C",
+  "Late prolif: CCNB1/2+ CDK1+ T cells" = "#CAB2D6",
+  "Late prolif: STMN1+ BIRC5+" = "#FDBF6F",
+  "Ribosomal/Mitochondrial/Degraded cells" = "#FF7F00",
+  "gamma-delta T cells" = "#6A3D9A"
+)
+cols1 <- cols2
+cols3 <- c("CAR+" = "#66c2a5", "CAR-" = "#fc8d62")
+cols4 <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51")
+cols5 <- c("IP" = "#4E6AAB", "Peak" = "#e78ac3")
+cols6 <- c("CD4" = "#147D2C", "CD8" = "#F5C936", "Unknown" = "#7f7f7f")
+cols7 <- c("G1" = "#F8766D", "G2M" = "#00BA38", "S" = "#619CFF")
+cols8 <- c("#E69F00FF", "#56B4E9FF", "#009E73FF", "#F0E442FF")
+
+theme_set(theme_minimal())
+```
+
+# Tonic Signaling CLARA
+
+Joining the genes of activation and exhaustion
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+integrated.obj <- readRDS("integrated.nd.obj.rds")
+Idents(integrated.obj) <- factor(x = Idents(integrated.obj), levels = c("CD8+ Eff/Mem T cells (EM)", "CD8+ Effector T cells (E)", "CD8+ cytotoxic T cells", "CD4+ CEntral/Effector memory T cells (CM/EM)", "CD4+ Naive T cells", "gamma-delta T cells", "Late prolif: CCNB1/2+ CDK1+ T cells", "Early prolif: MCM3/5/7+ PCNA+ T cells", "Late prolif: histones enriched MKI67+ T cells", "Late prolif: STMN1+ BIRC5+", "Ribosomal/Mitochondrial/Degraded cells"))
+
+integrated.obj$Pat_CAR <- paste(integrated.obj$Patient_id, integrated.obj$Class1, sep = "_")
+integrated.obj$clusters <- Idents(integrated.obj)
+```
+
+#  Analysis.
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+tonic_genes <- c("CD28", "CD40LG", "TNFRSF4", "TNFRSF9", "CD74", "HLA-DBR1", "NKB1", "ICOS", "CD27", "CD25", "CD69", "TOX", "PDCD1", "LAG3", "TIGIT", "CASP8", "HAVCR2", "CTLA4", "PTPN11", "CD160", "CD244")
+
+integrated.obj <- AddModuleScore(object = integrated.obj, features = list(tonic_genes), name = "Tonic.MGM")
+```
+
+```{r , fig.height=15, fig.width=17, message=FALSE}
+FeaturePlot(integrated.obj, features = tonic_genes)
+```
+ 
+# IP
+ 
+```{r , fig.height=15, fig.width=17, message=FALSE}
+integrated.obj.Peak <- subset(x = integrated.obj, subset = Timepoint == "IP")
+```
+
+## Signature expression 
+
+```{r , fig.height=14, fig.width=12, message=FALSE}
+aux_df1 <- data.frame(seurat_clusters = Idents(integrated.obj.Peak), integrated.obj.Peak[[]], FetchData(integrated.obj.Peak, vars = tonic_genes, slot = "data"))
+```
+
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+aux_df1 %>%
+  group_by(Patient_id, Timepoint, Class1) %>%
+  summarise_at(vars(one_of(tonic_genes)), list(mean = mean, max = max, sd = sd)) %>%
+  kbl() %>%
+  kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  scroll_box(width = "100%", height = "500px")
+```
+
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+FeaturePlot(integrated.obj, features = "Tonic.MGM1")
+
+# CAR+/CAR-
+
+ggplot(aux_df1, aes(x = fct_reorder(Class1, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = Class1)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  scale_fill_manual(values = cols3)
+
+
+# CD4/CD8
+aux_df1 <- aux_df1[which(aux_df1$final_criteria != "Unknown"), ]
+
+ggplot(aux_df1, aes(x = fct_reorder(final_criteria, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = final_criteria)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  scale_fill_manual(values = cols6)
+
+
+ggplot(aux_df1, aes(x = fct_reorder(Class1, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = final_criteria)) +
+  geom_split_violin() +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  scale_fill_manual(values = cols6)
+
+
+ggplot(aux_df1, aes(x = fct_reorder(Class1, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = final_criteria)) +
+  geom_split_violin() +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  scale_fill_manual(values = cols6) +
+  facet_grid(~Sample_id)
+
+ggplot(aux_df1, aes(x = fct_reorder(final_criteria, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = Class1)) +
+  geom_split_violin() +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  scale_fill_manual(values = cols3)
+
+# CAR+/CAR- Only CD4
+
+ggplot(aux_df1[which(aux_df1$final_criteria == "CD4"), ], aes(x = fct_reorder(Class1, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = Class1)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  scale_fill_manual(values = cols3)
+
+# CAR+/CAR- Only CD8
+
+ggplot(aux_df1[which(aux_df1$final_criteria == "CD8"), ], aes(x = fct_reorder(Class1, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = Class1)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  scale_fill_manual(values = cols3)
+
+# Patient
+ggplot(aux_df1, aes(x = fct_reorder(Patient_id, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = Patient_id)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  scale_fill_manual(values = cols4) +
+  facet_grid(~Class1)
+
+# Condition
+ggplot(aux_df1, aes(x = fct_reorder(Condition, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = Condition)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("")
+# +  scale_fill_manual(values =  cols6)
+
+# Clin Pat
+
+ggplot(aux_df1, aes(x = fct_reorder(ClinPat, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = ClinPat)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("")
+
+ggplot(aux_df1, aes(x = fct_reorder(ClinPat, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = ClinPat)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  facet_grid(~Class1)
+
+DotPlot(integrated.obj, features = "Tonic.MGM1", group.by = "Patient_id") +
+  scale_colour_gradient2(low = "blue", mid = "#e3e3e3", high = "red") +
+  theme(
+    text = element_text(size = 18),
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)
+  ) +
+  xlab("") + ylab("")
+```
+
+
+# Peak
+ 
+```{r , fig.height=15, fig.width=17, message=FALSE}
+integrated.obj.Peak <- subset(x = integrated.obj, subset = Timepoint == "Peak")
+```
+
+## Signature expression 
+
+```{r , fig.height=14, fig.width=12, message=FALSE}
+aux_df1 <- data.frame(seurat_clusters = Idents(integrated.obj.Peak), integrated.obj.Peak[[]], FetchData(integrated.obj.Peak, vars = tonic_genes, slot = "data"))
+```
+
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+aux_df1 %>%
+  group_by(Patient_id, Timepoint, Class1) %>%
+  summarise_at(vars(one_of(tonic_genes)), list(mean = mean, max = max, sd = sd)) %>%
+  kbl() %>%
+  kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  scroll_box(width = "100%", height = "500px")
+```
+
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+FeaturePlot(integrated.obj, features = "Tonic.MGM1")
+
+# CAR+/CAR-
+
+ggplot(aux_df1, aes(x = fct_reorder(Class1, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = Class1)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  scale_fill_manual(values = cols3)
+
+# CD4/CD8
+aux_df1 <- aux_df1[which(aux_df1$final_criteria != "Unknown"), ]
+
+ggplot(aux_df1, aes(x = fct_reorder(final_criteria, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = final_criteria)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  scale_fill_manual(values = cols6)
+
+# CAR+/CAR- Only CD4
+
+ggplot(aux_df1[which(aux_df1$final_criteria == "CD4"), ], aes(x = fct_reorder(Class1, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = Class1)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  scale_fill_manual(values = cols3)
+
+# CAR+/CAR- Only CD8
+
+ggplot(aux_df1[which(aux_df1$final_criteria == "CD8"), ], aes(x = fct_reorder(Class1, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = Class1)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  scale_fill_manual(values = cols3)
+
+# Patient
+ggplot(aux_df1, aes(x = fct_reorder(Patient_id, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = Patient_id)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  scale_fill_manual(values = cols4) +
+  facet_grid(~Class1)
+
+# Condition
+
+ggplot(aux_df1, aes(x = fct_reorder(Condition, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = Condition)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("")
+# +  scale_fill_manual(values =  cols6)
+
+# Clin Pat
+
+ggplot(aux_df1, aes(x = fct_reorder(ClinPat, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = ClinPat)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("")
+
+ggplot(aux_df1, aes(x = fct_reorder(ClinPat, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = ClinPat)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  facet_grid(~Class1)
+```
+
+# CAR+
+ 
+```{r , fig.height=15, fig.width=17, message=FALSE}
+integrated.obj.Peak <- subset(x = integrated.obj, subset = Class1 == "CAR+")
+```
+
+## Signature expression 
+
+```{r , fig.height=14, fig.width=12, message=FALSE}
+aux_df1 <- data.frame(seurat_clusters = Idents(integrated.obj.Peak), integrated.obj.Peak[[]], FetchData(integrated.obj.Peak, vars = tonic_genes, slot = "data"))
+```
+
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+aux_df1 %>%
+  group_by(Patient_id, Timepoint, Class1) %>%
+  summarise_at(vars(one_of(tonic_genes)), list(mean = mean, max = max, sd = sd)) %>%
+  kbl() %>%
+  kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  scroll_box(width = "100%", height = "500px")
+```
+
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+FeaturePlot(integrated.obj, features = "Tonic.MGM1")
+
+# IP/Peak
+
+ggplot(aux_df1, aes(x = fct_reorder(Timepoint, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = Timepoint)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  scale_fill_manual(values = cols5)
+
+# CD4/CD8
+aux_df1 <- aux_df1[which(aux_df1$final_criteria != "Unknown"), ]
+
+ggplot(aux_df1, aes(x = fct_reorder(final_criteria, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = final_criteria)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  scale_fill_manual(values = cols6)
+
+# CAR+/CAR- Only CD4
+
+ggplot(aux_df1[which(aux_df1$final_criteria == "CD4"), ], aes(x = fct_reorder(Class1, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = Class1)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  scale_fill_manual(values = cols3)
+
+# CAR+/CAR- Only CD8
+
+ggplot(aux_df1[which(aux_df1$final_criteria == "CD8"), ], aes(x = fct_reorder(Class1, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = Class1)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  scale_fill_manual(values = cols3)
+
+# Patient
+ggplot(aux_df1, aes(x = fct_reorder(Patient_id, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = Patient_id)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  scale_fill_manual(values = cols4) +
+  facet_grid(~Class1)
+
+# Condition
+ggplot(aux_df1, aes(x = fct_reorder(Condition, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = Condition)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("")
+# +  scale_fill_manual(values =  cols6)
+
+# Clin Pat
+
+ggplot(aux_df1, aes(x = fct_reorder(ClinPat, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = ClinPat)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("")
+
+ggplot(aux_df1, aes(x = fct_reorder(ClinPat, Tonic.MGM1, .fun = median, .desc = TRUE), y = Tonic.MGM1, fill = ClinPat)) +
+  geom_violin(scale = "width") +
+  geom_boxplot(outlier.shape = NA, width = 0.1) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  xlab("") +
+  facet_grid(~Class1)
+```
+
+# Session Info
+
+```{r}
+sessionInfo()
+```
+
+
+

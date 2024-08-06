@@ -1,0 +1,689 @@
+---
+title: "Pseudobulk CARpos"
+author:
+  - name: Mercedes Guerrero-Murillo
+    email: mguerrero@carrerasresearch.org
+date: now
+format: 
+  html:
+    toc: true
+    self-contained: true
+    anchor-sections: true
+    smooth-scroll: true
+    code-copy: true
+    code-overflow: wrap
+    date-format: "dddd MMM D, YYYY - HH:mm A"
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, cache.lazy = FALSE)
+memory.limit()
+```
+
+```{r load packages, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(Seurat)
+library(data.table)
+library(dplyr)
+library(DESeq2)
+library(VennDiagram)
+library(ggrepel)
+library(clusterProfiler)
+library(EnhancedVolcano)
+library(GSVA)
+# library(biomaRt)
+library(org.Hs.eg.db)
+```
+
+```{r colors}
+cols2 <- c(
+  "CD4+ Naive T cells" = "#33A02C",
+  "CD4+ CEntral/Effector memory T cells (CM/EM)" = "#B2DF8A",
+  "CD8+ cytotoxic T cells" = "#185B88",
+  "CD8+ Effector T cells (E)" = "#1F78B4",
+  "CD8+ Eff/Mem T cells (EM)" = "#A6CEE3",
+  "Early prolif: MCM3/5/7+ PCNA+ T cells" = "#FB9A99",
+  "Late prolif: histones enriched MKI67+ T cells" = "#E31A1C",
+  "Late prolif: CCNB1/2+ CDK1+ T cells" = "#CAB2D6",
+  "Late prolif: STMN1+ BIRC5+" = "#FDBF6F",
+  "Ribosomal/Mitochondrial/Degraded cells" = "#FF7F00",
+  "gamma-delta T cells" = "#6A3D9A"
+)
+
+cols3 <- c("CAR+" = "#66c2a5", "CAR-" = "#fc8d62")
+cols4 <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51")
+cols5 <- c("IP" = "#4E6AAB", "Peak" = "#e78ac3")
+cols6 <- c("CD4" = "#147D2C", "CD8" = "#F5C936", "Unknown" = "#7f7f7f")
+cols7 <- c("G1" = "#F8766D", "G2M" = "#00BA38", "S" = "#619CFF")
+cols8 <- c("#E69F00FF", "#56B4E9FF", "#009E73FF", "#F0E442FF")
+
+theme_set(theme_minimal())
+```
+
+# Explore
+
+```{r , fig.height=8, fig.width=8, message=FALSE, eval=TRUE}
+# Load data
+integrated.obj <- readRDS("integrated.nd.obj.rds")
+integrated.obj$Clusters <- integrated.obj$annotation
+
+subset_matrix <- AggregateExpression(object = integrated.obj, group.by = c("Timepoint", "Patient_id", "Class1"), slot = "counts")
+
+metadata <- integrated.obj@meta.data %>%
+  group_by(Patient_id, Timepoint, Class1) %>%
+  summarise(n = n()) %>%
+  mutate(Id = paste(Timepoint, Patient_id, Class1, sep = "_")) %>%
+  as.data.frame()
+rownames(metadata) <- metadata$Id
+
+metadata <- metadata[order(match(rownames(metadata), colnames(subset_matrix$RNA))), ]
+
+dds <- DESeqDataSetFromMatrix(subset_matrix$RNA,
+  colData = metadata,
+  design = ~Timepoint
+)
+
+dds$Sex <- ifelse(dds$Patient_id %in% c("patient1", "patient5"), "Male", "Female")
+
+vst <- vst(dds, blind = TRUE)
+
+DESeq2::plotPCA(vst, intgroup = "Timepoint", ntop = 500)
+
+DESeq2::plotPCA(vst, intgroup = "Patient_id", ntop = 500)
+
+DESeq2::plotPCA(vst, intgroup = "Class1", ntop = 500)
+
+DESeq2::plotPCA(vst, intgroup = "Sex", ntop = 500)
+```
+
+# Compare CAR+ at IPvsPeak
+
+## CAR+ ALL
+
+```{r , fig.height=8, fig.width=8, message=FALSE, eval=TRUE}
+# rm(list = ls())
+rm(list = setdiff(ls(), c("ensembl", "integrated.obj")))
+# Load data
+# integrated.obj<-readRDS("integrated.obj.rds")
+
+# Filter by CAR+
+integrated.obj.subset <- subset(x = integrated.obj, subset = Class1 == "CAR+")
+
+subset_matrix <- AggregateExpression(object = integrated.obj.subset, group.by = c("Timepoint", "Patient_id"), slot = "counts")
+
+subset_metadata <- integrated.obj@meta.data %>%
+  group_by(Patient_id, Timepoint) %>%
+  summarise(n = n()) %>%
+  mutate(Id = paste(Timepoint, Patient_id, sep = "_")) %>%
+  as.data.frame()
+rownames(subset_metadata) <- subset_metadata$Id
+
+subset_metadata <- subset_metadata[order(match(rownames(subset_metadata), colnames(subset_matrix$RNA))), ]
+
+
+dds <- DESeqDataSetFromMatrix(subset_matrix$RNA,
+  colData = subset_metadata,
+  design = ~Timepoint
+)
+
+dds$Sex <- ifelse(dds$Patient_id %in% c("patient1", "patient5"), "Male", "Female")
+
+# Filtering data
+# Ensure at least 5 samples with a count of 10 or more.
+keep <- rowSums(counts(dds) >= 10) >= 5
+dds <- dds[keep, ]
+
+rlog <- rlog(dds, blind = TRUE)
+DESeq2::plotPCA(rlog, intgroup = "Timepoint", ntop = 500)
+DESeq2::plotPCA(rlog, intgroup = "Patient_id", ntop = 500)
+DESeq2::plotPCA(rlog, intgroup = "Sex", ntop = 500)
+
+library(sva)
+adjusted <- ComBat_seq(counts(dds), batch = dds$Patient_id, group = dds$Timepoint)
+
+dds <- DESeqDataSetFromMatrix(
+  countData = adjusted,
+  colData = colData(dds),
+  design = ~ Sex + Timepoint
+)
+
+rlog <- rlog(dds, blind = TRUE)
+DESeq2::plotPCA(rlog, intgroup = "Timepoint", ntop = 500)
+DESeq2::plotPCA(rlog, intgroup = "Patient_id", ntop = 500)
+DESeq2::plotPCA(rlog, intgroup = "Sex", ntop = 500)
+
+dds <- DESeq(dds)
+
+res <- results(dds, contrast = c("Timepoint", "IP", "Peak"))
+
+res
+
+summary(res)
+
+my_annotations <- function(res) {
+  x <- bitr(rownames(res), fromType = "SYMBOL", toType = c("GENETYPE"), OrgDb = "org.Hs.eg.db")
+  x$hgnc_symbol <- x$SYMBOL
+  res$hgnc_symbol <- rownames(res)
+  y <- left_join(as.data.frame(res), x, by = c("hgnc_symbol"))
+  return(y)
+}
+
+ann <- my_annotations(res)
+
+ann <- ann %>%
+  dplyr::select(hgnc_symbol, everything())
+ann$Analisis <- "All"
+
+write.csv(ann, "ann_CAR+.csv", row.names = FALSE)
+```
+
+<details><summary><font size="+2">Click to display DEG results</font></summary>
+
+
+```{r, fig.height=8, fig.width=8, message=FALSE, eval=TRUE}
+DT::datatable(as.data.frame(ann), filter = "top", fillContainer = TRUE, rownames = FALSE, extensions = "Buttons", options = list(
+  pageLength = 75, autoWidth = TRUE,
+  scrollY = "800px",
+  scrollX = TRUE,
+  dom = "BfrtCAR+", buttons = c("copy", "excel")
+))
+```
+
+</details>
+
+
+```{r, fig.height=8, fig.width=8, message=FALSE, eval=TRUE}
+# Paper Volcano
+ann$gene2 <- ann$hgnc_symbol
+ann$log10p_val <- -1 * log10(ann$padj)
+ann$gene2[which((ann$log2FoldChange > -1 & ann$log2FoldChange < 1) | ann$padj > 0.05)] <- ""
+highlight_df <- ann %>%
+  filter(padj < 0.05 & abs(log2FoldChange) >= 0.5)
+ggplot(ann, aes(x = log2FoldChange, y = log10p_val, label = gene2)) +
+  geom_point(alpha = 0.6) +
+  geom_point(
+    data = highlight_df,
+    aes(x = log2FoldChange, y = log10p_val),
+    color = "red",
+    size = 2
+  ) +
+  geom_vline(xintercept = -0.5, linetype = "dashed") +
+  geom_vline(xintercept = 0.5, linetype = "dashed") +
+  ylab("-log10(pval.adj)") +
+  xlab("log2FC(CARpos vs CARneg)") +
+  geom_text_repel(xlim = c(-Inf, Inf), ylim = c(-Inf, Inf), max.overlaps = 10) +
+  theme_classic()
+
+normalized_counts <- counts(dds, normalized = TRUE)
+topGenes <- head(order(res$padj), 500)
+mat <- normalized_counts[topGenes, ]
+hclust_matrix <- mat %>%
+  t() %>%
+  scale() %>%
+  t()
+
+library(ComplexHeatmap)
+col_ha <- HeatmapAnnotation(CAR = dds$Timepoint, Patient = dds$Patient_id)
+Heatmap(hclust_matrix, show_row_names = FALSE, show_column_names = FALSE, top_annotation = col_ha)
+```
+
+
+```{r, fig.height=8, fig.width=8}
+library(msigdbr)
+
+m_t2g <- msigdbr(species = "Homo sapiens", category = "H") %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  as.data.frame()
+m_t2g <- m_t2g[!duplicated(m_t2g), ]
+head(m_t2g)
+
+ann <- ann[ann$padj < 0.05, ]
+
+original_gene_list <- ann$log2FoldChange
+names(original_gene_list) <- ann$hgnc_symbol
+gene_list <- na.omit(original_gene_list)
+gene_list <- sort(gene_list, decreasing = TRUE)
+gene_list <- gene_list[-duplicated(gene_list)]
+
+gene_list_pos <- gene_list[gene_list > 0]
+gene_list_pos <- sort(gene_list_pos, decreasing = TRUE)
+
+gene_list_neg <- gene_list[gene_list < 0]
+gene_list_neg <- abs(gene_list_neg)
+gene_list_neg <- sort(gene_list_neg, decreasing = TRUE)
+
+gene_both <- list("Peak" = names(gene_list_neg), "IP" = names(gene_list_pos))
+
+xx <- compareCluster(gene_both, enricher, TERM2GENE = m_t2g)
+
+if (!is.null(xx)) {
+  dotplot(xx, showCategory = 20)
+}
+
+m_t2g <- msigdbr(species = "Homo sapiens", category = "H") %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  as.data.frame()
+m_t2g <- m_t2g[!duplicated(m_t2g), ]
+genesbygo <- split(m_t2g$gene_symbol, m_t2g$gs_name)
+
+gsva_results <- gsva(normalized_counts, genesbygo, method = "gsva", kcdf = "Gaussian", min.sz = 15, max.sz = 500, mx.diff = TRUE, verbose = FALSE)
+
+library(ComplexHeatmap)
+col_ha <- HeatmapAnnotation(CAR = dds$Timepoint, Patient = dds$Patient_id)
+Heatmap(gsva_results, show_column_names = FALSE, top_annotation = col_ha)
+```
+
+
+## CD4
+
+```{r , fig.height=8, fig.width=8, message=FALSE, eval=TRUE}
+# rm(list = ls())
+rm(list = setdiff(ls(), c("ensembl", "integrated.obj", "my_annotations")))
+# Load data
+# integrated.obj<-readRDS("integrated.obj.rds")
+
+# Filter by CAR+
+integrated.obj.subset <- subset(x = integrated.obj, subset = final_criteria == "CD4" & Class1 == "CAR+")
+
+subset_matrix <- AggregateExpression(object = integrated.obj.subset, group.by = c("Timepoint", "Patient_id"), slot = "counts")
+
+subset_metadata <- integrated.obj@meta.data %>%
+  group_by(Patient_id, Timepoint) %>%
+  summarise(n = n()) %>%
+  mutate(Id = paste(Timepoint, Patient_id, sep = "_")) %>%
+  as.data.frame()
+rownames(subset_metadata) <- subset_metadata$Id
+
+subset_metadata <- subset_metadata[order(match(rownames(subset_metadata), colnames(subset_matrix$RNA))), ]
+
+dds <- DESeqDataSetFromMatrix(subset_matrix$RNA,
+  colData = subset_metadata,
+  design = ~Timepoint
+)
+
+dds$Sex <- ifelse(dds$Patient_id %in% c("patient1", "patient5"), "Male", "Female")
+
+# Filtering data
+# Ensure at least 5 samples with a count of 10 or more.
+keep <- rowSums(counts(dds) >= 10) >= 5
+dds <- dds[keep, ]
+
+rlog <- rlog(dds, blind = TRUE)
+DESeq2::plotPCA(rlog, intgroup = "Timepoint", ntop = 500)
+DESeq2::plotPCA(rlog, intgroup = "Patient_id", ntop = 500)
+DESeq2::plotPCA(rlog, intgroup = "Sex", ntop = 500)
+
+library(sva)
+adjusted <- ComBat_seq(counts(dds), batch = dds$Patient_id, group = dds$Timepoint)
+
+dds <- DESeqDataSetFromMatrix(
+  countData = adjusted,
+  colData = colData(dds),
+  design = ~ Sex + Timepoint
+)
+
+rlog <- rlog(dds, blind = TRUE)
+DESeq2::plotPCA(rlog, intgroup = "Timepoint", ntop = 500)
+DESeq2::plotPCA(rlog, intgroup = "Patient_id", ntop = 500)
+DESeq2::plotPCA(rlog, intgroup = "Sex", ntop = 500)
+
+dds <- DESeq(dds)
+
+res <- results(dds, contrast = c("Timepoint", "IP", "Peak"))
+
+summary(res)
+
+ann <- my_annotations(res)
+ann <- ann %>%
+  dplyr::select(hgnc_symbol, everything())
+
+# writing row in the csv file
+ann$Analisis <- "CD4"
+write.csv(ann, "ann_CAR+_CD4.csv", row.names = FALSE)
+```
+
+<details><summary><font size="+2">Click to display DEG results</font></summary>
+
+
+```{r , fig.height=8, fig.width=8, message=FALSE, eval=TRUE}
+DT::datatable(as.data.frame(ann), filter = "top", fillContainer = TRUE, rownames = FALSE, extensions = "Buttons", options = list(
+  pageLength = 75, autoWidth = TRUE,
+  scrollY = "800px",
+  scrollX = TRUE,
+  dom = "BfrtCAR+", buttons = c("copy", "excel")
+))
+```
+
+</details>
+
+```{r , fig.height=8, fig.width=8}
+ann$gene2 <- ann$hgnc_symbol
+ann$log10p_val <- -1 * log10(ann$padj)
+ann$gene2[which((ann$log2FoldChange > -1 & ann$log2FoldChange < 1) | ann$padj > 0.05)] <- ""
+highlight_df <- ann %>%
+  filter(padj < 0.05 & abs(log2FoldChange) >= 0.5)
+ggplot(ann, aes(x = log2FoldChange, y = log10p_val, label = gene2)) +
+  geom_point(alpha = 0.6) +
+  geom_point(
+    data = highlight_df,
+    aes(x = log2FoldChange, y = log10p_val),
+    color = "red",
+    size = 2
+  ) +
+  geom_vline(xintercept = -0.5, linetype = "dashed") +
+  geom_vline(xintercept = 0.5, linetype = "dashed") +
+  ylab("-log10(pval.adj)") +
+  xlab("log2FC(CARpos vs CARneg)") +
+  geom_text_repel(xlim = c(-Inf, Inf), ylim = c(-Inf, Inf), max.overlaps = 10) +
+  theme_classic()
+
+normalized_counts <- counts(dds, normalized = TRUE)
+topGenes <- head(order(res$padj), 500)
+mat <- normalized_counts[topGenes, ]
+hclust_matrix <- mat %>%
+  t() %>%
+  scale() %>%
+  t()
+
+library(ComplexHeatmap)
+col_ha <- HeatmapAnnotation(CAR = dds$Timepoint, Patient = dds$Patient_id)
+Heatmap(hclust_matrix, show_row_names = FALSE, show_column_names = FALSE, top_annotation = col_ha)
+```
+
+
+```{r , fig.height=8, fig.width=8}
+library(msigdbr)
+m_t2g <- msigdbr(species = "Homo sapiens", category = "H") %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  as.data.frame()
+m_t2g <- m_t2g[!duplicated(m_t2g), ]
+head(m_t2g)
+
+ann <- ann[ann$padj < 0.05, ]
+
+original_gene_list <- ann$log2FoldChange
+names(original_gene_list) <- ann$hgnc_symbol
+gene_list <- na.omit(original_gene_list)
+gene_list <- sort(gene_list, decreasing = TRUE)
+gene_list <- gene_list[-duplicated(gene_list)]
+
+gene_list_pos <- gene_list[gene_list > 0]
+gene_list_pos <- sort(gene_list_pos, decreasing = TRUE)
+gene_list_pos <- gene_list_pos[-duplicated(gene_list_pos)]
+
+gene_list_neg <- gene_list[gene_list < 0]
+gene_list_neg <- abs(gene_list_neg)
+gene_list_neg <- sort(gene_list_neg, decreasing = TRUE)
+
+gene_both <- list("Peak" = names(gene_list_neg), "IP" = names(gene_list_pos))
+
+xx <- compareCluster(gene_both, enricher, TERM2GENE = m_t2g)
+if (!is.null(xx)) {
+  dotplot(xx, showCategory = 20)
+}
+
+m_t2g <- msigdbr(species = "Homo sapiens", category = "H") %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  as.data.frame()
+m_t2g <- m_t2g[!duplicated(m_t2g), ]
+
+genesbygo <- split(m_t2g$gene_symbol, m_t2g$gs_name)
+
+gsva_results <- gsva(normalized_counts, genesbygo, method = "gsva", kcdf = "Gaussian", min.sz = 15, max.sz = 500, mx.diff = TRUE, verbose = FALSE)
+
+library(ComplexHeatmap)
+col_ha <- HeatmapAnnotation(CAR = dds$Timepoint, Patient = dds$Patient_id)
+Heatmap(gsva_results, show_column_names = FALSE, top_annotation = col_ha)
+```
+
+
+
+## CD8
+
+```{r , fig.height=8, fig.width=8}
+# rm(list = ls())
+rm(list = setdiff(ls(), c("ensembl", "integrated.obj", "my_annotations")))
+
+# Load data
+# integrated.obj<-readRDS("integrated.obj.rds")
+
+# Filter by CAR+
+integrated.obj.subset <- subset(x = integrated.obj, subset = final_criteria == "CD8" & Class1 == "CAR+")
+
+subset_matrix <- AggregateExpression(object = integrated.obj.subset, group.by = c("Timepoint", "Patient_id"), slot = "counts")
+
+subset_metadata <- integrated.obj@meta.data %>%
+  group_by(Patient_id, Timepoint) %>%
+  summarise(n = n()) %>%
+  mutate(Id = paste(Timepoint, Patient_id, sep = "_")) %>%
+  as.data.frame()
+rownames(subset_metadata) <- subset_metadata$Id
+
+subset_metadata <- subset_metadata[order(match(rownames(subset_metadata), colnames(subset_matrix$RNA))), ]
+
+dds <- DESeqDataSetFromMatrix(subset_matrix$RNA,
+  colData = subset_metadata,
+  design = ~Timepoint
+)
+
+dds$Sex <- ifelse(dds$Patient_id %in% c("patient1", "patient5"), "Male", "Female")
+
+# Filtering data
+# Ensure at least 5 samples with a count of 10 or more.
+keep <- rowSums(counts(dds) >= 10) >= 5
+dds <- dds[keep, ]
+
+rlog <- rlog(dds, blind = TRUE)
+DESeq2::plotPCA(rlog, intgroup = "Timepoint", ntop = 500)
+DESeq2::plotPCA(rlog, intgroup = "Patient_id", ntop = 500)
+DESeq2::plotPCA(rlog, intgroup = "Sex", ntop = 500)
+
+library(sva)
+adjusted <- ComBat_seq(counts(dds), batch = dds$Patient_id, group = dds$Timepoint)
+
+dds <- DESeqDataSetFromMatrix(
+  countData = adjusted,
+  colData = colData(dds),
+  design = ~ Sex + Timepoint
+)
+
+rlog <- rlog(dds, blind = TRUE)
+
+DESeq2::plotPCA(rlog, intgroup = "Timepoint", ntop = 500)
+DESeq2::plotPCA(rlog, intgroup = "Patient_id", ntop = 500)
+DESeq2::plotPCA(rlog, intgroup = "Sex", ntop = 500)
+
+dds <- DESeq(dds)
+
+res <- results(dds, contrast = c("Timepoint", "IP", "Peak"))
+
+summary(res)
+
+ann <- my_annotations(res)
+
+ann <- ann %>%
+  dplyr::select(hgnc_symbol, everything())
+
+ann$Analisis <- "CD8"
+write.csv(ann, "ann_CAR+_CD8.csv", row.names = FALSE)
+```
+
+<details><summary><font size="+2">Click to display DEG results</font></summary>
+
+
+```{r , fig.height=8, fig.width=8}
+DT::datatable(as.data.frame(ann), filter = "top", fillContainer = TRUE, rownames = FALSE, extensions = "Buttons", options = list(
+  pageLength = 75, autoWidth = TRUE,
+  scrollY = "800px",
+  scrollX = TRUE,
+  dom = "BfrtCAR+", buttons = c("copy", "excel")
+))
+```
+
+</details>
+
+
+```{r , fig.height=8, fig.width=8}
+# Paper Volcano
+ann$gene2 <- ann$hgnc_symbol
+ann$log10p_val <- -1 * log10(ann$padj)
+ann$gene2[which((ann$log2FoldChange > -1 & ann$log2FoldChange < 1) | ann$padj > 0.05)] <- ""
+highlight_df <- ann %>%
+  filter(padj < 0.05 & abs(log2FoldChange) >= 0.5)
+ggplot(ann, aes(x = log2FoldChange, y = log10p_val, label = gene2)) +
+  geom_point(alpha = 0.6) +
+  geom_point(
+    data = highlight_df,
+    aes(x = log2FoldChange, y = log10p_val),
+    color = "red",
+    size = 2
+  ) +
+  geom_vline(xintercept = -0.5, linetype = "dashed") +
+  geom_vline(xintercept = 0.5, linetype = "dashed") +
+  ylab("-log10(pval.adj)") +
+  xlab("log2FC(CARpos vs CARneg)") +
+  geom_text_repel(xlim = c(-Inf, Inf), ylim = c(-Inf, Inf), max.overlaps = 10) +
+  theme_classic()
+
+normalized_counts <- counts(dds, normalized = TRUE)
+topGenes <- head(order(res$padj), 500)
+mat <- normalized_counts[topGenes, ]
+hclust_matrix <- mat %>%
+  t() %>%
+  scale() %>%
+  t()
+
+library(ComplexHeatmap)
+col_ha <- HeatmapAnnotation(CAR = dds$Timepoint, Patient = dds$Patient_id)
+Heatmap(hclust_matrix, show_row_names = FALSE, show_column_names = FALSE, top_annotation = col_ha)
+```
+
+
+```{r , fig.height=8, fig.width=8}
+library(msigdbr)
+m_t2g <- msigdbr(species = "Homo sapiens", category = "H") %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  as.data.frame()
+m_t2g <- m_t2g[!duplicated(m_t2g), ]
+head(m_t2g)
+
+ann <- ann[ann$padj < 0.05, ]
+
+original_gene_list <- ann$log2FoldChange
+names(original_gene_list) <- ann$hgnc_symbol
+gene_list <- na.omit(original_gene_list)
+gene_list <- sort(gene_list, decreasing = TRUE)
+gene_list <- gene_list[-duplicated(gene_list)]
+
+gene_list_pos <- gene_list[gene_list > 0]
+gene_list_pos <- sort(gene_list_pos, decreasing = TRUE)
+
+gene_list_neg <- gene_list[gene_list < 0]
+gene_list_neg <- abs(gene_list_neg)
+gene_list_neg <- sort(gene_list_neg, decreasing = TRUE)
+
+gene_both <- list("Peak" = names(gene_list_neg), "IP" = names(gene_list_pos))
+
+xx <- compareCluster(gene_both, enricher, TERM2GENE = m_t2g)
+
+head(xx)
+
+if (!is.null(xx)) {
+  dotplot(xx, showCategory = 20)
+}
+
+m_t2g <- msigdbr(species = "Homo sapiens", category = "H") %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  as.data.frame()
+m_t2g <- m_t2g[!duplicated(m_t2g), ]
+genesbygo <- split(m_t2g$gene_symbol, m_t2g$gs_name)
+
+library(GSVA)
+gsva_results <- gsva(normalized_counts, genesbygo, method = "gsva", kcdf = "Gaussian", min.sz = 15, max.sz = 500, mx.diff = TRUE, verbose = FALSE)
+
+library(ComplexHeatmap)
+col_ha <- HeatmapAnnotation(CAR = dds$Timepoint, Patient = dds$Patient_id)
+Heatmap(gsva_results, show_column_names = FALSE, top_annotation = col_ha)
+```
+
+## CAR+ ALL BY CLUST
+
+```{r , fig.height=8, fig.width=8, message=FALSE, eval=TRUE}
+# rm(list = ls())
+rm(list = setdiff(ls(), c("ensembl", "integrated.obj", "my_annotations")))
+
+# Load data
+# integrated.obj<-readRDS("integrated.obj.rds")
+DEG_Clust <- list()
+results <- lapply(levels(integrated.obj$seurat_clusters), function(cluster) {
+  # Filter by CAR+
+  integrated.obj.subset <- subset(x = integrated.obj, subset = Class1 == "CAR+" & seurat_clusters == cluster)
+
+  subset_matrix <- AggregateExpression(object = integrated.obj.subset, group.by = c("Timepoint", "Patient_id", "seurat_clusters"), slot = "counts")
+
+  subset_metadata <- integrated.obj.subset@meta.data %>%
+    group_by(Patient_id, Timepoint, seurat_clusters) %>%
+    summarise(n = n()) %>%
+    mutate(Id = paste(Timepoint, Patient_id, seurat_clusters, sep = "_")) %>%
+    as.data.frame()
+  rownames(subset_metadata) <- subset_metadata$Id
+
+  subset_metadata <- subset_metadata[order(match(rownames(subset_metadata), colnames(subset_matrix$RNA))), ]
+
+  dds <- DESeqDataSetFromMatrix(subset_matrix$RNA,
+    colData = subset_metadata,
+    design = ~Timepoint
+  )
+
+  dds$Sex <- ifelse(dds$Patient_id %in% c("patient1", "patient5"), "Male", "Female")
+
+  # Filtering data
+  # Ensure at least 5 samples with a count of 10 or more.
+  keep <- rowSums(counts(dds) >= 10) >= 5
+  dds <- dds[keep, ]
+
+  rlog <- rlog(dds, blind = TRUE)
+  dds <- DESeq(dds)
+
+  Deg <- results(dds, contrast = c("Timepoint", "IP", "Peak"))
+  Deg <- Deg[abs(Deg$log2FoldChange) > 0.4, ]
+  Deg$Analisis <- levels(integrated.obj$annotation)[as.numeric(cluster) + 1]
+  DEG_Clust[cluster] <- Deg
+})
+
+# Combina los resultados en un único objeto
+combined_results <- do.call(rbind, results)
+
+combined_results
+
+summary(combined_results)
+
+ann <- my_annotations(combined_results)
+
+ann <- ann %>%
+  dplyr::select(hgnc_symbol, everything())
+
+write.csv(ann, "ann_CAR+_Clusters.csv", row.names = FALSE)
+```
+
+<details><summary><font size="+2">Click to display DEG results</font></summary>
+
+
+```{r, fig.height=8, fig.width=8, message=FALSE, eval=TRUE}
+DT::datatable(as.data.frame(ann), filter = "top", fillContainer = TRUE, rownames = FALSE, extensions = "Buttons", options = list(
+  pageLength = 75, autoWidth = TRUE,
+  scrollY = "800px",
+  scrollX = TRUE,
+  dom = "BfrtCAR+", buttons = c("copy", "excel")
+))
+```
+
+</details>
+
+
+# Session Info
+
+```{r}
+sessionInfo()
+```

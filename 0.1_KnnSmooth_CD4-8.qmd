@@ -1,0 +1,92 @@
+---
+title: "Knn-smoothed_CD4CD8 classification"
+author:
+  - name: Mercedes Guerrero-Murillo
+    email: mguerrero@carrerasresearch.org
+date: now
+format: 
+  html:
+    toc: true
+    self-contained: true
+    anchor-sections: true
+    smooth-scroll: true
+    code-copy: true
+    code-overflow: wrap
+    date-format: "dddd MMM D, YYYY - HH:mm A"
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, cache.lazy = FALSE)
+memory.limit()
+```
+
+```{r load packages, message=FALSE, warning=FALSE}
+library(Seurat)
+library(UCell)
+library(ggplot2)
+library(dplyr)
+```
+
+```{r}
+cols6 <- c("CD4" = "#147D2C", "CD8" = "#F5C936", "Unclassified_real" = "#7f7f7f", "Error" = "black")
+```
+
+# Load Our data
+
+```{r}
+adata <- readRDS("integrated.nd.obj.rds")
+adata <- NormalizeData(adata)
+adata <- FindVariableFeatures(adata)
+adata <- ScaleData(adata, features = rownames(adata))
+
+# Calcular KNN
+markers <- c("CD4", "CD8A", "CD3D")
+adata <- SmoothKNN(adata, signature.names = markers, assay = "RNA", reduction = "pca", k = 100)
+
+DefaultAssay(adata) <- "RNA"
+FeaturePlot(adata, reduction = "umap", features = markers)
+
+DefaultAssay(adata) <- "RNA_kNN"
+FeaturePlot(adata, reduction = "umap", features = markers)
+
+data <- FetchData(object = adata, vars = c("CD4", "CD8A"), layer = "data")
+
+ggplot(data, aes(x = CD4, y = CD8A)) +
+  geom_bin2d(bins = 70) +
+  scale_fill_continuous(type = "viridis") +
+  theme_bw() +
+  geom_hline(yintercept = 0.1) +
+  geom_vline(xintercept = 0.1)
+
+posCD4cells <- WhichCells(adata, expression = CD4 > 0.1)
+adata$CD4_knn <- ifelse(colnames(adata) %in% posCD4cells, "Pos", "Neg")
+
+posCD8cells <- WhichCells(adata, expression = CD8A > 0.1)
+adata$CD8_knn <- ifelse(colnames(adata) %in% posCD8cells, "Pos", "Neg")
+
+adata$class_knn <- "Unclassified"
+
+adata$class_knn <- ifelse(adata$CD4_knn == "Pos" & adata$CD8_knn == "Neg", "CD4",
+  ifelse(adata$CD8_knn == "Pos" & adata$CD4_knn == "Neg", "CD8",
+    ifelse(adata$CD8_knn == "Pos" & adata$CD4_knn == "Pos", "Error", "Unclassified_real")
+  )
+)
+
+df <- adata[[]]
+
+df %>%
+  group_by(annotation, class_knn) %>%
+  summarise(n = n()) %>%
+  ggplot(aes(x = annotation, y = n)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 0.5)) +
+  geom_bar(stat = "identity", aes(fill = class_knn)) +
+  scale_fill_manual(values = cols6)
+
+write.csv(df, "KnnSmooth_CD4CD8.csv")
+```
+
+# Session Info
+```{r}
+sessionInfo()
+```

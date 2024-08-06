@@ -1,0 +1,153 @@
+---
+title: "scCART-Doublets"
+author:
+  - name: Mercedes Guerrero-Murillo
+    email: mguerrero@carrerasresearch.org
+date: now
+format: 
+  html:
+    toc: true
+    self-contained: true
+    anchor-sections: true
+    smooth-scroll: true
+    code-copy: true
+    code-overflow: wrap
+    date-format: "dddd MMM D, YYYY - HH:mm A"
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, cache.lazy = FALSE)
+memory.limit(size = 6000)
+options(future.globals.maxSize = 8000 * 1024^2)
+```
+
+```{r load packages, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(Seurat)
+library(scDblFinder)
+library(DoubletFinder)
+```
+
+# Load Data
+
+```{r , fig.height=8, fig.width=10, message=FALSE}
+# Load data
+integrated.obj <- readRDS("integrated.obj.rds")
+```
+
+# Doublet fidner + scDblFinder
+
+```{r , fig.height=8, fig.width=8, message=FALSE}
+set.seed(1234)
+
+# Split the object into samples
+integrated.obj$sample <- paste0(integrated.obj$Patient_id, integrated.obj$Condition)
+integrated.obj.sample <- SplitObject(integrated.obj, split.by = "sample")
+
+# Function to create objects with data info.
+for (seurat_name in unique(integrated.obj$sample)) {
+  seurat_obj <- integrated.obj.sample[[seurat_name]]
+  print(seurat_obj)
+  seurat_obj <- NormalizeData(seurat_obj, verbose = FALSE)
+  seurat_obj <- FindVariableFeatures(seurat_obj, verbose = FALSE)
+  all.genes <- rownames(seurat_obj)
+  seurat_obj <- ScaleData(seurat_obj, features = all.genes, verbose = FALSE)
+  seurat_obj <- RunPCA(seurat_obj, verbose = FALSE)
+
+  sceobj <- as.SingleCellExperiment(seurat_obj)
+  doublet_res <- scDblFinder(sceobj)
+  table(doublet_res$scDblFinder.class)
+  seurat_obj$scdblfinder <- doublet_res$scDblFinder.class
+
+  suppressMessages(sweep.res <- paramSweep(seurat_obj, PCs = 1:15))
+  sweep.stats <- summarizeSweep(sweep.res, GT = FALSE)
+  bcmvn <- find.pK(sweep.stats)
+  pk <- as.numeric(as.character(bcmvn$pK))[[which.max(bcmvn$BCmetric)]]
+  nExp_poi <- round(0.075 * nrow(seurat_obj@meta.data))
+  suppressMessages(seurat_obj <- doubletFinder(seurat_obj, PCs = 1:15, pN = 0.25, pK = pk, nExp = nExp_poi, reuse.pANN = FALSE, sct = FALSE))
+  colnames(seurat_obj@meta.data)[grepl("DF.classification", colnames(seurat_obj@meta.data))] <- "DF_classifications"
+  assign(seurat_name, seurat_obj)
+}
+
+integrated.obj.merge <- lapply(unique(integrated.obj$sample), get)
+
+integrated.obj.doublet <- merge(x = integrated.obj.merge[[1]], y = integrated.obj.merge[2:length(integrated.obj.merge)])
+
+apply_transformation <- function(seurat_obj) {
+  seurat_obj$Doublet_Intersect <- ifelse(seurat_obj$DF_classifications == "Doublet" & seurat_obj$scdblfinder == "doublet", "Doublet", "Singlet")
+  return(seurat_obj)
+}
+
+integrated.obj.doublet <- apply_transformation(integrated.obj.doublet)
+integrated.obj.doublet$scdblfinder <- ifelse(integrated.obj.doublet$scdblfinder == "doublet", "Doublet", "Singlet")
+```
+
+```{r,eval=TRUE}
+# Doublet finder
+table(integrated.obj$DF_classifications)
+
+# SccDBlfinder
+table(integrated.obj$scdblfinder)
+
+# Intersetct
+table(integrated.obj$Doublet_Intersect)
+table(integrated.obj$DF_classifications, integrated.obj$scdblfinder)
+
+# VenDiagramm
+DataVen <- paste(rownames(integrated.obj[[]]), integrated.obj$DF_classifications, sep = "-")
+DataVen <- cbind(DataVen, paste(rownames(integrated.obj[[]]), integrated.obj$scdblfinder, sep = "-"))
+
+ListVen <- list(DoubletFinder = DataVen[, 1], scdblfinder = DataVen[, 2])
+
+library(ggVennDiagram)
+ggVennDiagram(ListVen, label_alpha = 0) + scale_fill_distiller(palette = "RdBu")
+
+aux_df1 <- integrated.obj[[]]
+
+# By sample analysed
+
+integrated.obj$sample <- paste0(integrated.obj$Patient_id, integrated.obj$Condition)
+
+table(integrated.obj$Doublet_Intersect, integrated.obj$sample)
+table(integrated.obj$DF_classifications, integrated.obj$sample)
+table(integrated.obj$scdblfinder, integrated.obj$sample)
+
+df_contingencia <- table(integrated.obj$Doublet_Intersect, integrated.obj$sample)
+
+df_contingencia <- as.data.frame.table(df_contingencia)
+
+# Renombrar las columnas
+names(df_contingencia) <- c("Factor1", "Factor2", "Frequency")
+df_contingencia$Percentage <- df_contingencia$Frequency / sum(df_contingencia$Frequency) * 100
+
+# Crear el gráfico de barras con ggplot2
+ggplot(df_contingencia, aes(x = Factor2, y = Percentage, fill = Factor1)) +
+  geom_bar(stat = "identity", position = "fill") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+VlnPlot(integrated.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.ribo", "percent.mito"), ncol = 2, group.by = "Doublet_Intersect")
+```
+
+# UMAPS
+
+```{r, eval=TRUE}
+integrated.obj.og <- AddMetaData(integrated.obj.og, aux_df1[, c("Doublet_Intersect", "DF_classifications", "scdblfinder")])
+
+# Plot
+integrated.obj.og$Doublet_Intersect <- factor(integrated.obj.og$Doublet_Intersect, levels = c("Singlet", "Doublet"))
+DimPlot(integrated.obj.og, group.by = "Doublet_Intersect")
+DimPlot(object = integrated.obj.og, split.by = "Doublet_Intersect") + NoLegend()
+
+DimPlot(object = integrated.obj.og, group.by = "DF_classifications")
+DimPlot(object = integrated.obj.og, split.by = "DF_classifications") + NoLegend()
+
+DimPlot(object = integrated.obj.og, group.by = "scdblfinder")
+DimPlot(object = integrated.obj.og, split.by = "scdblfinder") + NoLegend()
+```
+
+# Session Info
+
+```{r}
+sessionInfo()
+```

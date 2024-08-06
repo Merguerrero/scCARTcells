@@ -1,0 +1,371 @@
+---
+title: "Gamma Delta analysis"
+author:
+  - name: Mercedes Guerrero-Murillo
+    email: mguerrero@carrerasresearch.org
+date: now
+format: 
+  html:
+    toc: true
+    self-contained: true
+    anchor-sections: true
+    smooth-scroll: true
+    code-copy: true
+    code-overflow: wrap
+    date-format: "dddd MMM D, YYYY - HH:mm A"
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, cache.lazy = FALSE)
+memory.limit()
+```
+
+```{r load packages, message=FALSE, warning=FALSE}
+library(Seurat)
+library(ggplot2)
+library(ggalluvial)
+library(grid)
+library(forcats)
+library(see)
+library(dplyr)
+library(gghalves)
+library(viridis)
+library(stringr)
+library(kableExtra)
+library(EnhancedVolcano)
+library(msigdbr)
+library(clusterProfiler)
+library(RColorBrewer)
+```
+
+```{r colors}
+cols2 <- c(
+  "CD4+ Naive T cells" = "#33A02C",
+  "CD4+ CEntral/Effector memory T cells (CM/EM)" = "#B2DF8A",
+  "CD8+ cytotoxic T cells" = "#185B88",
+  "CD8+ Effector T cells (E)" = "#1F78B4",
+  "CD8+ Eff/Mem T cells (EM)" = "#A6CEE3",
+  "Early prolif: MCM3/5/7+ PCNA+ T cells" = "#FB9A99",
+  "Late prolif: histones enriched MKI67+ T cells" = "#E31A1C",
+  "Late prolif: CCNB1/2+ CDK1+ T cells" = "#CAB2D6",
+  "Late prolif: STMN1+ BIRC5+" = "#FDBF6F",
+  "Ribosomal/Mitochondrial/Degraded cells" = "#FF7F00",
+  "gamma-delta T cells" = "#6A3D9A"
+)
+
+cols3 <- c("CAR+" = "#66c2a5", "CAR-" = "#fc8d62")
+cols4 <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51")
+cols5 <- c("IP" = "#4E6AAB", "Peak" = "#e78ac3")
+cols6 <- c("CD4" = "#147D2C", "CD8" = "#F5C936", "Unknown" = "#7f7f7f")
+cols7 <- c("G1" = "#F8766D", "G2M" = "#00BA38", "S" = "#619CFF")
+cols8 <- c("#E69F00FF", "#56B4E9FF", "#009E73FF", "#F0E442FF")
+
+theme_set(theme_minimal())
+```
+
+```{r , message=FALSE}
+library(gridExtra)
+expandy <- function(plot, ymin = 0, n = 10, legend = TRUE) {
+  library(plyr)
+  max.y <- max(layer_data(plot)$y, na.rm = TRUE)
+  min.log <- floor(log10(max.y))
+  scale_y_continuous(limits = ~ c(0, round_any(max.y, n, f = ceiling)), breaks = seq(0, round_any(max.y, n, f = ceiling), by = n), expand = c(0, 0))
+}
+```
+
+# Load Data
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+integrated.obj <- readRDS("integrated.nd.obj.rds")
+Idents(integrated.obj) <- factor(x = Idents(integrated.obj), levels = c("CD8+ Eff/Mem T cells (EM)", "CD8+ Effector T cells (E)", "CD8+ cytotoxic T cells", "CD4+ CEntral/Effector memory T cells (CM/EM)", "CD4+ Naive T cells", "gamma-delta T cells", "Late prolif: CCNB1/2+ CDK1+ T cells", "Early prolif: MCM3/5/7+ PCNA+ T cells", "Late prolif: histones enriched MKI67+ T cells", "Late prolif: STMN1+ BIRC5+", "Ribosomal/Mitochondrial/Degraded cells"))
+```
+
+# gamma delta genes Feature plot
+
+```{r , fig.height=20, fig.width=25, message=FALSE}
+gammadelta_genes <- c("GZMA", "GZMB", "GZMH", "GZMK", "GZMM", "PRF1", "GNLY", "NKG7", "CD4", "CD8A", "CD8B", "TRDV1", "TRGV8", "TRG", "TRD")
+
+FeaturePlot(integrated.obj, features = gammadelta_genes, cols = c("#d3d3d3", "#9966CC"))
+
+pdf("Gammadelta.pdf", width = 25, height = 20)
+last_plot()
+dev.off()
+
+integrated.obj$cloneType_plot <- ifelse(integrated.obj$cloneType == "No clonotype detected", "NO TCR", "TCR")
+
+DimPlot(integrated.obj, group.by = "cloneType_plot", cols = c("#9966CC", "#d3d3d3"))
+
+pdf("Gammadelta_TCR.pdf", width = 25, height = 20)
+last_plot()
+dev.off()
+```
+
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+metadata <- integrated.obj[[]]
+metadata$Clusters <- Idents(integrated.obj)
+
+g1 <- ggplot(metadata[metadata$Clusters == "gamma-delta T cells", ], aes(x = Timepoint, fill = Timepoint)) +
+  geom_bar() +
+  scale_fill_manual(values = cols5) +
+  theme_classic()
+g1 + expandy(g1, n = 50)
+
+g2 <- ggplot(metadata[metadata$Clusters == "gamma-delta T cells", ], aes(x = Patient_id, fill = Timepoint)) +
+  geom_bar(position = position_dodge(preserve = "single")) +
+  scale_fill_manual(values = cols5) +
+  theme_classic()
+g2 + expandy(g2, n = 10)
+
+g1 + g2 + ggtitle("ALL GD CELLS")
+
+pdf("Gammadelta2.pdf")
+metadata <- integrated.obj[[]]
+metadata$Clusters <- Idents(integrated.obj)
+metadata <- metadata[metadata$Class1 == "CAR+", ]
+
+g1 <- ggplot(metadata[metadata$Clusters == "gamma-delta T cells", ], aes(x = Timepoint, fill = Timepoint)) +
+  geom_bar() +
+  scale_fill_manual(values = cols5) +
+  theme_classic()
+g1 + expandy(g1, n = 50)
+
+g2 <- ggplot(metadata[metadata$Clusters == "gamma-delta T cells", ], aes(x = Patient_id, fill = Timepoint)) +
+  geom_bar(position = position_dodge(preserve = "single")) +
+  scale_fill_manual(values = cols5) +
+  theme_classic()
+g2 + expandy(g2, n = 10)
+
+dev.off()
+
+g1 + g2 + ggtitle("CAR+")
+
+
+pdf("Gammadelta2CAR-.pdf")
+metadata <- integrated.obj[[]]
+metadata$Clusters <- Idents(integrated.obj)
+metadata <- metadata[metadata$Class1 == "CAR-", ]
+
+g1 <- ggplot(metadata[metadata$Clusters == "gamma-delta T cells", ], aes(x = Timepoint, fill = Timepoint)) +
+  geom_bar() +
+  scale_fill_manual(values = cols5) +
+  theme_classic()
+g1 + expandy(g1, n = 50)
+
+g2 <- ggplot(metadata[metadata$Clusters == "gamma-delta T cells", ], aes(x = Patient_id, fill = Timepoint)) +
+  geom_bar(position = position_dodge(preserve = "single")) +
+  scale_fill_manual(values = cols5) +
+  theme_classic()
+g2 + expandy(g2, n = 10)
+
+dev.off()
+
+g1 + g2 + ggtitle("CAR-")
+```
+
+# Ratios
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+GammaDelta <- metadata[metadata$Clusters == "gamma-delta T cells", ]
+
+library(tidyr)
+library(dplyr)
+GammaDelta %>%
+  group_by(Timepoint) %>%
+  dplyr::summarise(n = n())
+
+GammaDelta %>%
+  group_by(Timepoint, Patient_id) %>%
+  dplyr::summarise(n = n()) %>%
+  pivot_wider(names_from = Timepoint, values_from = n) %>%
+  mutate(Ratio = Peak / IP)
+
+GammaDelta %>%
+  group_by(Timepoint, ClinPat) %>%
+  dplyr::summarise(n = n()) %>%
+  pivot_wider(names_from = Timepoint, values_from = n) %>%
+  mutate(Ratio = Peak / IP)
+```
+
+# Rebutal
+
+## How different they are?
+
+```{r}
+library(matchSCore2)
+obj_markers <- FindAllMarkers(integrated.obj)
+obj_markers_cuted <- cut_markers(levels(obj_markers$cluster), obj_markers, ntop = 100)
+
+ms <- matchSCore2(gene_cl.ref = obj_markers_cuted, gene_cl.obs = obj_markers_cuted, ylab = "Y", xlab = "X")
+ms$ggplot
+
+obj_markers_CD8_gd <- obj_markers_cuted[c("CD8+ Eff/Mem T cells (EM)", "CD8+ Effector T cells (E)", "CD8+ cytotoxic T cells", "gamma-delta T cells")]
+
+ms <- matchSCore2(gene_cl.ref = obj_markers_CD8_gd, gene_cl.obs = obj_markers_CD8_gd, ylab = "Y", xlab = "X")
+ms$ggplot + scale_fill_gradientn(colours = c("white", "#6A3D9A"))
+
+
+pdf("Jackard_idex.pdf")
+ms$ggplot + scale_fill_gradientn(colours = c("white", "#6A3D9A"))
+dev.off()
+
+
+library(ComplexHeatmap)
+
+m <- make_comb_mat(obj_markers_CD8_gd, mode = "distinct")
+m <- m[comb_degree(m) <= 2]
+UpSet(m,
+  top_annotation = upset_top_annotation(m, add_numbers = TRUE),
+  right_annotation = upset_right_annotation(m, add_numbers = TRUE), comb_order = order(comb_size(m))
+)
+
+pdf("Upset_gammadelta.pdf")
+UpSet(m,
+  top_annotation = upset_top_annotation(m, add_numbers = TRUE),
+  right_annotation = upset_right_annotation(m, add_numbers = TRUE), comb_order = order(comb_size(m))
+)
+dev.off()
+```
+
+# let's compare TOTAL 
+
+```{r}
+integrated.obj_peak <- subset(integrated.obj, Timepoint == "Peak")
+gammadelta_markers <- FindMarkers(integrated.obj_peak, ident.1 = "gamma-delta T cells", ident.2 = c("CD8+ cytotoxic T cells"))
+
+gammadelta_markers$gene <- rownames(gammadelta_markers)
+
+ggplot(gammadelta_markers, aes(x = avg_log2FC, y = -log10(p_val_adj), label = gene)) +
+  geom_point(color = "grey") +
+  geom_point(
+    data = gammadelta_markers[abs(gammadelta_markers$avg_log2FC) > 1 & -log10(gammadelta_markers$p_val_adj) > 0.05, ], aes(x = avg_log2FC, y = -log10(p_val_adj)), color = "purple",
+    size = 2
+  ) +
+  geom_text(size = 1) +
+  geom_vline(xintercept = -1, linetype = "dashed") +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  geom_hline(yintercept = 0.30103, linetype = "dashed") +
+  ylab("-log10(pval.adj)") +
+  xlab("log2FC(CD8+ cytotoxic T cells vs gamma-delta T cells)") +
+  theme_classic()
+
+pdf("GammadeltaVolcano1.pdf", height = 5, width = 5)
+last_plot()
+dev.off()
+```
+
+<details><summary><font size="+2">Click to display DEG results</font></summary>
+
+```{r, fig.height=8, fig.width=8, message=FALSE, eval=TRUE}
+DT::datatable(as.data.frame(gammadelta_markers), filter = "top", fillContainer = TRUE, rownames = FALSE, extensions = "Buttons", options = list(
+  pageLength = 75, autoWidth = TRUE,
+  scrollY = "800px",
+  scrollX = TRUE,
+  dom = "BfrtCAR-", buttons = c("copy", "excel")
+))
+```
+
+</details>
+
+```{r}
+# Hallmark - GO and biocarta, very interesting pathways
+m_t2g <- msigdbr(species = "Homo sapiens", category = "H") %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  as.data.frame()
+
+m_t2g_2 <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "GO:BP") %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  as.data.frame()
+
+m_t2g_3 <- msigdbr(species = "Homo sapiens", category = "C2", subcategory = "CP:BIOCARTA") %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  as.data.frame()
+
+m_t2g <- rbind(m_t2g_3, m_t2g_2, m_t2g)
+
+compClust <- compareCluster(geneCluster = deg.ls, fun = "enricher", TERM2GENE = m_t2g[, 1:2], minGSSize = 1, pvalueCutoff = 1, qvalueCutoff = 1)
+toplot <- as.data.frame(compClust)
+
+go_plot <- c(
+  "GOBP_T_CELL_MEDIATED_CYTOTOXICITY", "GOBP_CELL_KILLING", "GOBP_T_CELL_RECEPTOR_SIGNALING_PATHWAY", "GOBP_LEUKOCYTE_CELL_CELL_ADHESION", "GOBP_RESPONSE_TO_TUMOR_CELL", "HALLMARK_INFLAMMATORY_RESPONSE", "GOBP_LYMPHOCYTE_COSTIMULATION",
+  "BIOCARTA_GRANULOCYTES_PATHWAY", "BIOCARTA_TCYTOTOXIC_PATHWAY",
+  "BIOCARTA_RAS_PATHWAY", "BIOCARTA_41BB_PATHWAY", "BIOCARTA_CYTOKINE_PATHWAY", "BIOCARTA_MAPK_PATHWAY", "BIOCARTA_NFKB_PATHWAY", "BIOCARTA_TCYTOTOXIC_PATHWAY"
+)
+
+m_t2g_sum <- m_t2g[m_t2g$gs_name %in% go_plot, ]
+```
+
+
+# Ucell
+
+```{r}
+library(UCell)
+
+signatures <- split(m_t2g_sum$gene_symbol, m_t2g_sum$gs_name)
+```
+
+## Peak 
+
+```{r}
+integrated.obj_cyto <- AddModuleScore_UCell(integrated.obj, features = signatures, ncores = 1, name = "")
+
+integrated.obj_peak_cyto <- subset(integrated.obj_cyto, subset = Timepoint == "Peak")
+
+DotPlot(integrated.obj_peak_cyto, features = names(signatures), assay = "RNA", cols = "RdBu") + theme(axis.title = element_blank()) + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+integrated.obj_peak_cyto_gd <- subset(integrated.obj_peak_cyto, subset = annotation == "gamma-delta T cells")
+
+DotPlot(integrated.obj_peak_cyto_gd, features = names(signatures), assay = "RNA", cols = "RdBu") + theme(axis.title = element_blank()) + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+DotPlot(integrated.obj_peak_cyto_gd, features = names(signatures), assay = "RNA", cols = "RdBu", split.by = "Class1") + theme(axis.title = element_blank()) + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+DotPlot(integrated.obj_peak_cyto_gd, features = names(signatures), assay = "RNA", cols = "RdBu", split.by = "Patient_id") + theme(axis.title = element_blank()) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + theme(axis.title = element_blank()) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + geom_tile(aes(fill = avg.exp.scaled)) + scale_fill_distiller(palette = "RdBu") + coord_flip()
+```
+
+# let's compare with itself 
+
+```{r}
+integrated.obj$celltype.Class1 <- paste(integrated.obj$annotation, integrated.obj$Class1, sep = "_")
+Idents(integrated.obj) <- "celltype.Class1"
+
+gammadelta_markers <- FindMarkers(integrated.obj, ident.1 = "gamma-delta T cells_CAR+", ident.2 = "gamma-delta T cells_CAR-")
+
+FeaturePlot(integrated.obj, features = "TRGV2")
+
+gammadelta_markers$gene <- rownames(gammadelta_markers)
+
+ggplot(gammadelta_markers, aes(x = avg_log2FC, y = -log10(p_val_adj), label = gene)) +
+  geom_point(color = "grey") +
+  geom_point(
+    data = gammadelta_markers[abs(gammadelta_markers$avg_log2FC) > 1 & -log10(gammadelta_markers$p_val_adj) > 0.05, ], aes(x = avg_log2FC, y = -log10(p_val_adj)), color = "purple",
+    size = 2
+  ) +
+  geom_text(size = 1) +
+  geom_vline(xintercept = -1, linetype = "dashed") +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  geom_hline(yintercept = 0.30103, linetype = "dashed") +
+  ylab("-log10(pval.adj)") +
+  xlab("log2FC(CARpos vs CARneg)") +
+  theme_classic()
+```
+
+<details><summary><font size="+2">Click to display DEG results</font></summary>
+
+```{r, fig.height=8, fig.width=8, message=FALSE, eval=TRUE}
+DT::datatable(as.data.frame(gammadelta_markers), filter = "top", fillContainer = TRUE, rownames = FALSE, extensions = "Buttons", options = list(
+  pageLength = 75, autoWidth = TRUE,
+  scrollY = "800px",
+  scrollX = TRUE,
+  dom = "BfrtCAR-", buttons = c("copy", "excel")
+))
+```
+
+</details>
+
+# Session Info
+
+```{r}
+sessionInfo()
+```
+

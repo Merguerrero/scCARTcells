@@ -1,0 +1,833 @@
+---
+title: "General analysis of the dataset"
+author:
+  - name: Mercedes Guerrero-Murillo
+    email: mguerrero@carrerasresearch.org
+date: now
+format: 
+  html:
+    toc: true
+    self-contained: true
+    anchor-sections: true
+    smooth-scroll: true
+    code-copy: true
+    code-overflow: wrap
+    date-format: "dddd MMM D, YYYY - HH:mm A"
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, cache.lazy = FALSE)
+memory.limit()
+```
+
+```{r load packages, message=FALSE, warning=FALSE}
+library(Seurat)
+library(ggplot2)
+library(ggalluvial)
+library(grid)
+library(plyr)
+library(forcats)
+library(see)
+library(dplyr)
+library(gghalves)
+library(viridis)
+library(stringr)
+library(RColorBrewer)
+library(kableExtra)
+library(ggpubr)
+library(rstatix)
+library(clusterProfiler)
+library(EnhancedVolcano)
+```
+
+```{r colors}
+cols2 <- c(
+  "CD4+ Naive T cells" = "#33A02C",
+  "CD4+ CEntral/Effector memory T cells (CM/EM)" = "#B2DF8A",
+  "CD8+ cytotoxic T cells" = "#185B88",
+  "CD8+ Effector T cells (E)" = "#1F78B4",
+  "CD8+ Eff/Mem T cells (EM)" = "#A6CEE3",
+  "Early prolif: MCM3/5/7+ PCNA+ T cells" = "#FB9A99",
+  "Late prolif: histones enriched MKI67+ T cells" = "#E31A1C",
+  "Late prolif: CCNB1/2+ CDK1+ T cells" = "#CAB2D6",
+  "Late prolif: STMN1+ BIRC5+" = "#FDBF6F",
+  "Ribosomal/Mitochondrial/Degraded cells" = "#FF7F00",
+  "gamma-delta T cells" = "#6A3D9A"
+)
+
+cols3 <- c("CAR+" = "#66c2a5", "CAR-" = "#fc8d62")
+cols4 <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51")
+cols5 <- c("IP" = "#4E6AAB", "Peak" = "#e78ac3")
+cols6 <- c("CD4" = "#147D2C", "CD8" = "#F5C936", "Unknown" = "#7f7f7f")
+cols7 <- c("G1" = "#F8766D", "G2M" = "#00BA38", "S" = "#619CFF")
+cols8 <- c("#E69F00FF", "#56B4E9FF", "#009E73FF", "#F0E442FF")
+
+theme_set(theme_minimal())
+```
+
+```{r gorgeous plots, message=FALSE}
+library(gridExtra)
+expandy <- function(plot, ymin = 0, n = 10, legend = TRUE) {
+  max.y <- max(layer_data(plot)$y, na.rm = TRUE)
+  min.log <- floor(log10(max.y))
+  scale_y_continuous(limits = ~ c(0, round_any(max.y, n, f = ceiling)), breaks = seq(0, round_any(max.y, n, f = ceiling), by = n), expand = c(0, 0))
+  # expand_limits(y=c(ymin, ceiling(max.y/10^min.log)*10^min.log))
+}
+```
+
+
+# scCART reanalysis integrated.obj
+
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+integrated.obj <- readRDS("integrated.nd.obj.rds")
+Idents(integrated.obj) <- factor(x = Idents(integrated.obj), levels = c("CD8+ Eff/Mem T cells (EM)", "CD8+ Effector T cells (E)", "CD8+ cytotoxic T cells", "CD4+ CEntral/Effector memory T cells (CM/EM)", "CD4+ Naive T cells", "gamma-delta T cells", "Late prolif: CCNB1/2+ CDK1+ T cells", "Early prolif: MCM3/5/7+ PCNA+ T cells", "Late prolif: histones enriched MKI67+ T cells", "Late prolif: STMN1+ BIRC5+", "Ribosomal/Mitochondrial/Degraded cells"))
+```
+
+## UMAPS
+
+```{r , fig.height=10, fig.width=12, message=FALSE, warning=FALSE}
+# Cell types
+integrated.obj$umap1 <- integrated.obj@reductions$umap@cell.embeddings[, 1]
+integrated.obj$umap2 <- integrated.obj@reductions$umap@cell.embeddings[, 2]
+aux_df1 <- data.frame(umap1 = integrated.obj$umap1, umap2 = integrated.obj$umap2, Clusters = Idents(integrated.obj), integrated.obj[[]])
+
+Totalcells <- nrow(aux_df1)
+grob <- grobTree(textGrob(paste0("n = ", Totalcells), x = 0.05, y = 0.95, hjust = 0, gp = gpar(fontsize = 12)))
+
+# Clusters
+ggplot(aux_df1, aes(umap1, umap2)) +
+  geom_point(aes(color = Clusters), size = 0.9) +
+  theme_classic() +
+  guides(colour = guide_legend(override.aes = list(size = 3))) +
+  scale_color_manual(values = cols2) +
+  annotation_custom(grob)
+
+ggplot(aux_df1, aes(umap1, umap2)) +
+  geom_point(aes(color = Clusters), size = 0.9) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  scale_color_manual(values = cols2) +
+  facet_grid(~Patient_id)
+
+# CAR +/-
+aux_df1 <- aux_df1[order(aux_df1$Class1, decreasing = TRUE), ]
+
+ggplot(aux_df1, aes(umap1, umap2)) +
+  geom_point(aes(color = Class1), size = 0.9) +
+  theme_classic() +
+  guides(colour = guide_legend(override.aes = list(size = 3))) +
+  scale_color_manual(values = cols3) +
+  annotation_custom(grob)
+
+# Peak/ IP
+ggplot(aux_df1, aes(umap1, umap2)) +
+  geom_point(aes(color = Timepoint), size = 0.9) +
+  theme_classic() +
+  guides(colour = guide_legend(override.aes = list(size = 3))) +
+  scale_color_manual(values = cols5) +
+  annotation_custom(grob)
+
+# Patient
+ggplot(aux_df1, aes(umap1, umap2)) +
+  geom_point(aes(color = Patient_id), size = 0.9) +
+  theme_classic() +
+  guides(colour = guide_legend(override.aes = list(size = 3))) +
+  scale_color_manual(values = cols4) +
+  annotation_custom(grob)
+
+last_plot() + facet_grid(~Patient_id)
+
+# Cell cycle
+ggplot(aux_df1, aes(umap1, umap2)) +
+  geom_point(aes(color = Phase), size = 0.9) +
+  theme_classic() +
+  guides(colour = guide_legend(override.aes = list(size = 3))) +
+  scale_color_manual(values = cols7) +
+  annotation_custom(grob)
+
+
+# CD4 /CD8
+ggplot(aux_df1, aes(umap1, umap2)) +
+  geom_point(aes(color = final_criteria), size = 0.9) +
+  theme_classic() +
+  guides(colour = guide_legend(override.aes = list(size = 3))) +
+  scale_color_manual(values = cols6) +
+  annotation_custom(grob)
+last_plot() + facet_grid(Patient_id ~ Timepoint + Class1)
+
+# UMAP final_Criteria
+ggplot(aux_df1, aes(umap1, umap2)) +
+  geom_point(aes(color = final_criteria), size = 0.9) +
+  theme_classic() +
+  guides(colour = guide_legend(override.aes = list(size = 3))) +
+  scale_color_manual(values = cols6) +
+  annotation_custom(grob)
+dev.off()
+```
+
+## Manuscript fig
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+pdf("UMAPS_tofigure.pdf")
+# UMAP clusters
+ggplot(aux_df1, aes(umap1, umap2)) +
+  geom_point(aes(color = Clusters), size = 0.6) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  scale_color_manual(values = cols2)
+# Umap Timepoint
+ggplot(aux_df1, aes(umap1, umap2)) +
+  geom_point(aes(color = Timepoint), size = 0.6) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  scale_color_manual(values = cols5)
+# UMAP Class1
+ggplot(aux_df1, aes(umap1, umap2)) +
+  geom_point(aes(color = Class1), size = 0.6) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  scale_color_manual(values = cols3)
+# UMAP final_criteria
+ggplot(aux_df1, aes(umap1, umap2)) +
+  geom_point(aes(color = final_criteria), size = 0.6) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  scale_color_manual(values = cols6)
+# UMAP cell cycle
+ggplot(aux_df1, aes(umap1, umap2)) +
+  geom_point(aes(color = Phase), size = 0.6) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  scale_color_manual(values = cols7)
+dev.off()
+```
+
+# QC
+
+```{r , fig.height=15, fig.width=12, warning=FALSE}
+vplot1 <- VlnPlot(integrated.obj, features = c("nFeature_RNA"), pt.size = 0, cols = cols2, assay = "RNA")
+vplot1 <- vplot1 + expandy(vplot1, n = 500) + theme(legend.position = "none")
+
+vplot2 <- VlnPlot(integrated.obj, features = c("nCount_RNA"), pt.size = 0, cols = cols2, assay = "RNA")
+vplot2 <- vplot2 + expandy(vplot2, n = 5000) + theme(legend.position = "none")
+
+vplot3 <- VlnPlot(integrated.obj, features = c("percent.mito"), pt.size = 0, cols = cols2, assay = "RNA")
+vplot3 <- vplot3 + expandy(vplot3, n = 0.1) + theme(legend.position = "none")
+
+vplot4 <- VlnPlot(integrated.obj, features = c("percent.ribo"), pt.size = 0, cols = cols2, assay = "RNA")
+vplot4 <- vplot4 + expandy(vplot4, n = 0.2) + theme(legend.position = "none")
+
+vplot1
+vplot2
+vplot3
+vplot4
+
+# DefaultAssay(integrated.obj) <- "integrated"
+# Create another label to differentiate between CAR+/- and timepoint
+integrated.obj$Condition <- paste0(integrated.obj$Timepoint, "_", integrated.obj$Class1)
+
+integrated.obj$umap1 <- integrated.obj@reductions$umap@cell.embeddings[, 1]
+integrated.obj$umap2 <- integrated.obj@reductions$umap@cell.embeddings[, 2]
+
+aux_df1 <- data.frame(umap1 = integrated.obj$umap1, umap2 = integrated.obj$umap2, clusters = Idents(integrated.obj), nUMI = integrated.obj$nCount_RNA, nGenes = integrated.obj$nFeature_RNA, percent.mito = integrated.obj$percent.mito, percent.ribo = integrated.obj$percent.ribo, sample = integrated.obj$Sample_id, Patient_id = integrated.obj$Patient_id, Timepoint = integrated.obj$Timepoint, Phase = integrated.obj$Phase, Condition = integrated.obj$Condition)
+```
+
+# Cluster distribution
+
+## Patient 
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+meta_integrated <- integrated.obj@meta.data
+meta_integrated$cell_type <- Idents(integrated.obj)
+meta_integrated$Pat_Cond <- paste(meta_integrated$Patient_id, meta_integrated$Condition, sep = "_")
+
+table_alluvium_pat <- meta_integrated %>%
+  group_by(Patient_id, cell_type) %>%
+  dplyr::summarise(n = n()) %>%
+  mutate(freq = (n / sum(n) * 100)) %>%
+  as.data.frame()
+table_alluvium_cond <- meta_integrated %>%
+  group_by(Pat_Cond, cell_type) %>%
+  dplyr::summarise(n = n()) %>%
+  mutate(freq = (n / sum(n) * 100)) %>%
+  as.data.frame()
+
+ggplot(table_alluvium_cond, aes(x = factor(Pat_Cond), y = freq, fill = factor(cell_type))) +
+  geom_bar(stat = "identity", width = 0.7) +
+  scale_fill_manual(values = cols2) +
+  labs(x = "Patient", y = "percent", fill = "Cell Type") +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(df, aes(Patient_id, fill = ident)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = cols2) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  facet_grid(. ~ Condition)
+```
+
+## Timepoint
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+ggplot(df, aes(ident, fill = Timepoint)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = cols5) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+## Phase
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+ggplot(df, aes(Patient_id, fill = Phase)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  facet_grid(. ~ Condition)
+
+ggplot(df, aes(Timepoint, fill = Phase)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+ggplot(df, aes(Condition, fill = Phase)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+# CAR T expression
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+# car_ex<-list.files("./CarExpression", full.names = T)
+# car_ex_data<-lapply(car_ex, function(x) read.csv(x,sep="\t",row.names = 1))
+# car_exr_data<-as.data.frame(do.call(rbind,car_ex_data))
+# colnames(car_exr_data)<- c("cells","CAR")
+#
+# car_exr_present <- data.frame(cells=colnames(integrated.obj))
+# car_exr_present<-left_join(car_exr_present, car_exr_data, by ='cells')
+# rownames(car_exr_present)<- car_exr_present$cells
+#
+# integrated.obj <- AddMetaData(object = integrated.obj, metadata = car_exr_present$CAR, col.name = "CARexpresion")
+
+FeaturePlot(integrated.obj, features = "CARexpresion")
+
+
+# DotPlot(integrated.obj_sub, features = "CARexpresion") +
+#   scale_colour_gradient2(low = "blue", mid = "#e3e3e3", high = "red") +
+#   theme(axis.text.x = element_text(angle = 30, vjust = 1, hjust=1))
+
+
+integrated.obj$umap1 <- integrated.obj@reductions$umap@cell.embeddings[, 1]
+integrated.obj$umap2 <- integrated.obj@reductions$umap@cell.embeddings[, 2]
+
+aux_df1 <- data.frame(umap1 = integrated.obj$umap1, umap2 = integrated.obj$umap2, clusters = Idents(integrated.obj), nUMI = integrated.obj$nCount_RNA, nGenes = integrated.obj$nFeature_RNA, percent.mito = integrated.obj$percent.mito, percent.ribo = integrated.obj$percent.ribo, sample = integrated.obj$Sample_id, Patient_id = integrated.obj$Patient_id, Timepoint = integrated.obj$Timepoint, Phase = integrated.obj$Phase, Condition = integrated.obj$Condition, Car = integrated.obj$CARexpresion, Class1 = integrated.obj$Class1)
+
+aux_df1 <- aux_df1[order(aux_df1$Car), ]
+
+# Supplementary 1
+
+suppl1 <- ggplot(aux_df1, aes(Condition, log10(Car))) +
+  geom_violin(aes(fill = Condition)) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols8)
+
+suppl1 + expandy(suppl1, n = 1)
+```
+
+## Just CAR +
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+# We want to see how is the expression of CAR + at different conditions.
+aux_df2 <- aux_df1[aux_df1$Class1 == "CAR+", ]
+
+suppl2 <- ggplot(aux_df2, aes(reorder(Patient_id, -Car), log10(Car))) +
+  geom_violin(aes(fill = Patient_id)) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols4)
+
+suppl2 + expandy(suppl2, n = 1)
+```
+
+# Prolif /non prolif
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+# Add new clasiffier Proliferative/non-prolif
+meta_integrated$Prolif <- ifelse(grepl("prolif|Ribo", meta_integrated$cell_type), "Prolif", "Non-prolif")
+
+ggplot(meta_integrated, aes(Class1, fill = Prolif)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = c("grey", "#AB6ED1"))
+```
+
+## Peak
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+## Peak
+ggplot(meta_integrated[meta_integrated$Timepoint == "Peak", ], aes(Class1, fill = Prolif)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("Peak") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = c("grey", "#AB6ED1"))
+
+ggplot(meta_integrated[meta_integrated$Timepoint == "Peak", ], aes(Class1, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("Peak") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2)
+
+ggplot(meta_integrated[meta_integrated$Timepoint == "Peak", ], aes(Class1, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("Peak") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2) +
+  facet_grid(~Patient_id)
+
+
+ggplot(meta_integrated[meta_integrated$Timepoint == "Peak" & meta_integrated$Prolif == "Prolif", ], aes(Class1, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2)
+
+ggplot(meta_integrated[meta_integrated$Timepoint == "Peak" & meta_integrated$Prolif == "Non-prolif", ], aes(Class1, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2)
+```
+
+## IP
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+ggplot(meta_integrated[meta_integrated$Timepoint == "IP", ], aes(Class1, fill = Prolif)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("IP") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = c("grey", "black"))
+
+ggplot(meta_integrated[meta_integrated$Timepoint == "IP", ], aes(Class1, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("IP") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2)
+
+
+ggplot(meta_integrated[meta_integrated$Timepoint == "IP", ], aes(Class1, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("IP") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2) +
+  facet_grid(~Patient_id)
+
+ggplot(meta_integrated[meta_integrated$Timepoint == "IP", ], aes(Class1, fill = Prolif)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("IP") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = c("grey", "#AB6ED1")) +
+  facet_grid(~Patient_id)
+
+ggplot(meta_integrated[meta_integrated$Timepoint == "IP" & meta_integrated$Prolif == "Prolif", ], aes(Class1, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2)
+
+ggplot(meta_integrated[meta_integrated$Timepoint == "IP" & meta_integrated$Prolif == "Prolif", ], aes(Class1, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2) +
+  facet_grid(~Patient_id)
+
+
+ggplot(meta_integrated[meta_integrated$Timepoint == "IP" & meta_integrated$Prolif == "Non-prolif", ], aes(Class1, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2)
+
+ggplot(meta_integrated[meta_integrated$Timepoint == "IP" & meta_integrated$Prolif == "Non-prolif", ], aes(Class1, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2) +
+  facet_grid(~Patient_id)
+
+ggplot(meta_integrated[meta_integrated$Timepoint == "IP" & meta_integrated$final_criteria %in% c("CD4", "CD8"), ], aes(Class1, fill = final_criteria)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols6)
+
+ggplot(meta_integrated[meta_integrated$Timepoint == "IP" & meta_integrated$final_criteria %in% c("CD4", "CD8"), ], aes(Patient_id, fill = final_criteria)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = cols6) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  facet_grid(. ~ Condition)
+
+ggplot(meta_integrated[meta_integrated$Timepoint == "IP" & meta_integrated$final_criteria %in% c("CD4", "CD8"), ], aes(Patient_id, fill = final_criteria)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = cols6) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+# By conditions
+ggplot(meta_integrated[meta_integrated$Prolif == "Prolif", ], aes(Condition, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2)
+
+ggplot(meta_integrated[meta_integrated$Prolif == "Non-prolif", ], aes(Condition, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2)
+```
+
+## CAR +
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR+", ], aes(Timepoint, fill = Prolif)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("CAR+") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = c("grey", "#AB6ED1"))
+
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR+" & meta_integrated$Prolif == "Prolif", ], aes(Timepoint, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("CAR+") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2)
+
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR+" & meta_integrated$Prolif == "Prolif", ], aes(Timepoint, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("CAR+") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2) +
+  facet_grid(~Patient_id)
+
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR+" & meta_integrated$Prolif == "Non-prolif", ], aes(Timepoint, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("CAR+") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2)
+
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR+" & meta_integrated$Prolif == "Non-prolif", ], aes(Timepoint, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("CAR+") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2) +
+  facet_grid(~Patient_id)
+
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR+", ], aes(Timepoint, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("CAR+") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2)
+
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR+", ], aes(Timepoint, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("CAR+") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2) +
+  facet_grid(~Patient_id)
+
+
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR+", ], aes(Timepoint, fill = final_criteria)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols6)
+
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR+", ], aes(Patient_id, fill = final_criteria)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = cols6) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  facet_grid(. ~ Condition)
+
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR+", ], aes(Patient_id, fill = final_criteria)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = cols6) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+## CAR-
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR-", ], aes(Timepoint, fill = Prolif)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("CAR+") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = c("grey", "#AB6ED1"))
+
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR-" & meta_integrated$Prolif == "Prolif", ], aes(Timepoint, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("CAR+") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2)
+
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR-" & meta_integrated$Prolif == "Prolif", ], aes(Timepoint, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("CAR+") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2) +
+  facet_grid(~Patient_id)
+
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR-" & meta_integrated$Prolif == "Non-prolif", ], aes(Timepoint, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("CAR+") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2)
+
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR-" & meta_integrated$Prolif == "Non-prolif", ], aes(Timepoint, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("CAR+") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2) +
+  facet_grid(~Patient_id)
+
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR-", ], aes(Timepoint, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("CAR+") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2)
+
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR-", ], aes(Timepoint, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  ggtitle("CAR+") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols2) +
+  facet_grid(~Patient_id)
+
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR-", ], aes(Timepoint, fill = final_criteria)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols6)
+
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR-", ], aes(Patient_id, fill = final_criteria)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = cols6) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  facet_grid(. ~ Condition)
+
+ggplot(meta_integrated[meta_integrated$Class1 == "CAR-", ], aes(Patient_id, fill = final_criteria)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = cols6) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+# Other signatures - annot
+
+```{r}
+library(UCell)
+signatures <- list(
+  Naive_Pace_2018 = c("DAPL1", "CCR7", "JUNB", "SELL", "BTG1", "LEF1", "LTB", "RPL12", "RPLP1", "RPL36A", "LIMD2", "EEF1B2", "RPS17", "RGS10", "RPS26", "BCL2", "SATB1", "EVL", "RGCC", "TCF7", "IGFBP4", "RPL26", "RPS28", "ACTN1", "CCR9", "RHOH", "FOXP1", "RAMP1", "RAPGEF6", "FAM189B", "PRDX6", "IL7R"),
+  SCM_Pace_2018 = c("ABCB1A", "ABCB1B", "ALPL", "ANTXR2", "ARL4C", "ATR", "BAALC", "BASP1", "BCL6", "BUB1", "CCR7", "CCR9", "CD27", "CXCR6", "DOCK9", "DUSP9", "EOMES", "ESRRB", "EVL", "FAS", "FGF2", "FUT4", "GZMK", "HAND1", "HESX1", "IER3", "IL2RB", "IL7R", "IRF4", "IRF8", "JARID2", "KAT6A", "KLF4", "LDHA", "LDHB", "LDHC", "LDHD", "LECT1", "LPIN1", "LY6A", "LY6E", "MAP3K8", "MAPK12", "MCM3AP", "MCOLN2", "MYC", "NANOG", "NCOR2", "NR0B1", "NR1D2", "P2RY14", "PAX6", "PCGF2", "PLEKHA5", "PODXL", "POU5F1", "POU6F1", "PRKCE", "REST", "RIF1", "RNF138", "RRAS", "SALL4", "SATB1", "SETBP1", "SETDB1", "SKIL", "SMARCAD1", "SOX2", "SPON1", "STAT3", "TBX3", "TCF3", "TCL1", "TDGF1", "TERT", "TIGIT", "TNFAIP2", "TNFRSF1B", "TRAF1", "TRAF4", "TRIB2", "TXNIP", "ZFP42", "ZFX", "ZIC3"),
+  MemoryLike_Carmona_2019 = c("XCL1", "CCR7", "NRN1", "CD74", "RGS16", "DAPL1", "TNFRSF4", "CRTAM", "CCL4", "NFKBIA", "IKZF2", "BCL2A1", "CD83", "IRF8", "RGCC", "CD200", "GADD45B", "GM19585", "2310001H17RIK", "NRGN", "KLRK1", "BHLHE40", "FAM162A", "TNFSF8", "MRPS6", "SMC4", "SDF4", "TNFRSF9", "NR4A1", "BMYC", "TNFSF11", "DUSP4", "RILPL2", "BCL2A1", "ITM2A", "RGS10", "RPS26-PS1", "MPC1", "LTA", "ID3", "SELL", "VGLL4", "MS4A4C", "MMD", "RPS17", "NR4A2", "ZFP36L1", "REL", "CST3", "TGIF1", "ASS1", "IMPDH2", "MARCKSL1", "SLA", "ODC1", "TGFB1", "TNFRSF18", "GDI2", "CALR", "1700019D03RIK", "KDM2B", "ITGB1", "NRP1", "CAPG", "IFRD1", "SERPINB6B", "SESN3", "TUSC3", "POLD4", "TAGAP", "NR4A3", "HSPE1", "SAT1", "LAG3", "HIF1A", "PDCD1", "SET", "PACSIN1", "EEF1G", "TCF7", "RPL10-PS3", "C1QBP", "TRAF1", "STAT3", "PEBP1", "CD160", "KLRD1", "INPP4B", "MYC", "MYB", "IZUMO1R", "CSRP1", "ZEB2", "TSPAN32", "H2AFZ", "SATB1", "FAS", "IL18R1", "RAN", "NCL"),
+  EM_like_Carmona_2019 = c("LY6C2", "CD7", "CCL5", "KLF2", "ISG15", "CXCR3", "MS4A4B", "MS4A6B", "ITGB7", "GZMK", "IFIT3", "ZFP36L2", "IFI47", "IRF7", "XIST", "ZBP1", "RTP4", "HOPX", "PYDC4", "SLFN1", "PYDC3", "CLEC2D", "ACP5", "SLFN2", "IL7R", "CCR2", "S1PR1", "IGTP", "GIMAP9", "EVL", "GRAMD3", "EMB", "TGTP2", "FAM189B", "IFNAR2", "GBP2", "APOL7E", "SIDT1", "GM26740", "IRGM1", "PYHIN1", "LEF1", "ARL4C", "CTSE", "TCF7", "PDLIM1", "ZYX")
+)
+
+integrated.obj <- AddModuleScore_UCell(integrated.obj, features = signatures, ncores = 1, name = "")
+featnames <- names(signatures)
+
+integrated.obj$idents <- Idents(integrated.obj)
+# VlnPlot(integrated.obj, features = featnames, pt.size = 0, split.by = "idents")
+DotPlot(integrated.obj, features = featnames, group.by = "idents") +
+  scale_colour_gradient2(low = "blue", mid = "#e3e3e3", high = "red") +
+  theme(axis.text.x = element_text(angle = 30, vjust = 1, hjust = 1))
+
+DotPlot(integrated.obj, features = c("Naive_Pace_2018", "SCM_Pace_2018", "MemoryLike_Carmona_2019", "EM_like_Carmona_2019"), assay = "RNA", cols = "RdBu") + theme(axis.title = element_blank()) + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# Session Info
+
+```{r}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

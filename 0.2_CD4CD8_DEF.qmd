@@ -1,0 +1,217 @@
+---
+title: "Knn-smoothed_CD4CD8 classification"
+author:
+  - name: Mercedes Guerrero-Murillo
+    email: mguerrero@carrerasresearch.org
+date: now
+format: 
+  html:
+    toc: true
+    self-contained: true
+    anchor-sections: true
+    smooth-scroll: true
+    code-copy: true
+    code-overflow: wrap
+    date-format: "dddd MMM D, YYYY - HH:mm A"
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, cache.lazy = FALSE)
+memory.limit()
+```
+
+```{r load packages, message=FALSE, warning=FALSE}
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(reshape2)
+```
+
+```{r}
+cols6 <- c("CD4" = "#147D2C", "CD8" = "#F5C936", "Unclassified_real" = "#7f7f7f", "Error" = "black")
+
+cols_anno <- c(
+  "CD4+ Naive T cells" = "#33A02C",
+  "CD4+ CEntral/Effector memory T cells (CM/EM)" = "#B2DF8A",
+  "CD8+ cytotoxic T cells" = "#185B88",
+  "CD8+ Effector T cells (E)" = "#1F78B4",
+  "CD8+ Eff/Mem T cells (EM)" = "#A6CEE3",
+  "Early prolif: MCM3/5/7+ PCNA+ T cells" = "#FB9A99",
+  "Late prolif: histones enriched MKI67+ T cells" = "#E31A1C",
+  "Late prolif: CCNB1/2+ CDK1+ T cells" = "#CAB2D6",
+  "Late prolif: STMN1+ BIRC5+" = "#FDBF6F",
+  "Ribosomal/Mitochondrial/Degraded cells" = "#FF7F00",
+  "gamma-delta T cells" = "#6A3D9A"
+)
+theme_set(theme_minimal())
+```
+
+# CD4/CD8 classification final
+
+This script is to join all the optuts generated in the CD4 CD8 classification (due to sparsity of the scRNAseq data it is not possible to classify only by marker expression)
+
+# KNN-smooth 
+
+```{r}
+Knn_smooth <- read.csv("KnnSmooth_CD4CD8.csv")
+
+ggplot(Knn_smooth, aes(Patient_id, fill = class_knn)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = cols6) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  facet_grid(. ~ Condition)
+```
+
+# Azimouth
+
+```{r}
+Azimouth <- read.csv("Allpatients/Azimouth.csv")
+
+ggplot(Azimouth, aes(Patient_id, fill = CD4o8)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = cols6) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  facet_grid(. ~ Condition)
+```
+
+# SingleR
+
+One of the Gold Standrad software to project reference datasets into the query. In this case we will be useing the single cell Pan-cancer T cell published in 
+
+    Chu, Yanshuo, Enyu Dai, Yating Li, Guangchun Han, Guangsheng Pei, Davis R. Ingram, Krupa Thakkar, Jiang-Jiang Qin, Minghao Dang, Xiuning Le, Can Hu, Qing Deng, Ansam Sinjab, Pravesh Gupta, Ruiping Wang, Dapeng Hao, Fuduan Peng, Xinmiao Yan, Yunhe Liu, Shumei Song, Shaojun Zhang, John V. Heymach, Alexandre Reuben, Yasir Y. Elamin, Melissa P. Pizzi, Yang Lu, Rossana Lazcano, Jian Hu, Mingyao Li, Michael Curran, Andrew Futreal, Anirban Maitra, Amir A. Jazaeri, Jaffer A. Ajani, Charles Swanton, Xiang-Dong Cheng, Hussein A. Abbas, Maura Gillison, Krishna Bhat, Alexander J. Lazar, Michael Green, Kevin Litchfield, Humam Kadara, Cassian Yee, y Linghua Wang. 2023. «Pan-Cancer T Cell Atlas Links a Cellular Stress Response State to Immunotherapy Resistance». Nature Medicine 1-13. doi: 10.1038/s41591-023-02371-y.
+
+
+```{r}
+SingleR_PanT <- read.csv("SingleR_Joined.csv")
+
+SingleR_PanT$predic_SingleR_simple <- ifelse(grepl("CD4", SingleR_PanT$predic_SingleR), "CD4",
+  ifelse(grepl("CD8", SingleR_PanT$predic_SingleR), "CD8", "Unclassified")
+)
+
+ggplot(SingleR_PanT, aes(Patient_id, fill = predic_SingleR_simple)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = cols6) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  facet_grid(. ~ Condition)
+```
+
+This classification is not usefull, as it is not combined CD4/CD8. It only serves to help annotate the clusters. 
+
+# Plot all info together
+
+
+```{r}
+Knn_smooth_p <- Knn_smooth %>%
+  group_by(Patient_id, Condition, class_knn) %>%
+  summarise(n = n()) %>%
+  mutate(value = 100 * n / sum(n), method = "Knn") %>%
+  rename("Classification" = class_knn)
+
+Azimouth_p <- Azimouth %>%
+  group_by(Patient_id, Condition, CD4o8) %>%
+  summarise(n = n()) %>%
+  mutate(value = 100 * n / sum(n), method = "Azimouth") %>%
+  rename("Classification" = CD4o8)
+
+SingleR_PanT_p <- SingleR_PanT %>%
+  group_by(Patient_id, Condition, predic_SingleR_simple) %>%
+  summarise(n = n()) %>%
+  mutate(value = 100 * n / sum(n), method = "SingleR") %>%
+  rename("Classification" = predic_SingleR_simple)
+
+All_pred <- rbind(Knn_smooth_p, Azimouth_p, SingleR_PanT_p)
+
+All_pred$Classification <- ifelse(grepl("CD4", All_pred$Classification), "CD4",
+  ifelse(grepl("CD8", All_pred$Classification), "CD8",
+    ifelse(grepl("Unclassified", All_pred$Classification), "Unclassified", "Error")
+  )
+)
+
+ggplot(All_pred, aes(method, fill = Classification)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = c("#fdffb6", "#0a9396", "grey", "black")) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  facet_grid(Patient_id ~ Condition)
+
+ggplot(All_pred[All_pred$Classification != "Error", ], aes(method, fill = Classification)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = c("#fdffb6", "#0a9396", "grey", "black")) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  facet_grid(Patient_id ~ Condition)
+```
+
+```{r}
+All_pred_cond <- cbind(Knn_smooth, "Azimouth" = Azimouth$CD4o8, "SingleR" = SingleR_PanT$predic_SingleR_simple)
+
+All_pred_cond$class_knn <- ifelse(grepl("CD4", All_pred_cond$class_knn), "CD4",
+  ifelse(grepl("CD8", All_pred_cond$class_knn), "CD8",
+    ifelse(grepl("Unclassified", All_pred_cond$class_knn), "Unclassified", "Error")
+  )
+)
+All_pred_cond$Azimouth <- ifelse(grepl("CD4", All_pred_cond$Azimouth), "CD4",
+  ifelse(grepl("CD8", All_pred_cond$Azimouth), "CD8",
+    ifelse(grepl("Unclassified", All_pred_cond$Azimouth), "Unclassified", "Error")
+  )
+)
+All_pred_cond$SingleR <- ifelse(grepl("CD4", All_pred_cond$SingleR), "CD4",
+  ifelse(grepl("CD8", All_pred_cond$SingleR), "CD8",
+    ifelse(grepl("Unclassified", All_pred_cond$SingleR), "Unclassified", "Error")
+  )
+)
+# Definir una función para aplicar a cada fila
+check_ranks <- function(row) {
+  ranks <- unlist(row)
+  if (length(unique(ranks)) == 1) {
+    return(ranks[1])
+  } else if (length(unique(ranks)) == 3) {
+    return("Error")
+  } else {
+    counts <- table(ranks)
+    return(names(counts)[which.max(counts)])
+  }
+}
+
+# Aplicar la función a cada fila del dataframe y guardar los resultados en una nueva columna
+All_pred_cond$DEF_Class <- apply(All_pred_cond[, (ncol(All_pred_cond) - 2):ncol(All_pred_cond)], 1, check_ranks)
+```
+
+## Manuscript
+
+```{r}
+All_pred_cond <- All_pred_cond[All_pred_cond$DEF_Class != "Error", ]
+
+ggplot(All_pred_cond[All_pred_cond$Timepoint == "IP", ], aes(Class1, fill = DEF_Class)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_fill_manual(values = cols6)
+
+ggplot(All_pred_cond[All_pred_cond$Timepoint == "IP", ], aes(Patient_id, fill = DEF_Class)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = cols6) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  facet_grid(. ~ Condition)
+
+ggplot(All_pred_cond[All_pred_cond$Timepoint == "IP", ], aes(Patient_id, fill = DEF_Class)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = cols6) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+# Session Info
+
+```{r}
+sessionInfo()
+```

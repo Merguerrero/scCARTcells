@@ -1,0 +1,390 @@
+---
+title: "Composition CARneg"
+author:
+  - name: Mercedes Guerrero-Murillo
+    email: mguerrero@carrerasresearch.org
+date: now
+format: 
+  html:
+    toc: true
+    self-contained: true
+    anchor-sections: true
+    smooth-scroll: true
+    code-copy: true
+    code-overflow: wrap
+    date-format: "dddd MMM D, YYYY - HH:mm A"
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, cache.lazy = FALSE)
+memory.limit()
+```
+
+```{r load packages, message=FALSE, warning=FALSE}
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(sccomp)
+library(ggforce)
+```
+
+```{r colors}
+cols2 <- c(
+  "CD4+ Naive T cells" = "#33A02C",
+  "CD4+ CEntral/Effector memory T cells (CM/EM)" = "#B2DF8A",
+  "CD8+ cytotoxic T cells" = "#185B88",
+  "CD8+ Effector T cells (E)" = "#1F78B4",
+  "CD8+ Eff/Mem T cells (EM)" = "#A6CEE3",
+  "Early prolif: MCM3/5/7+ PCNA+ T cells" = "#FB9A99",
+  "Late prolif: histones enriched MKI67+ T cells" = "#E31A1C",
+  "Late prolif: CCNB1/2+ CDK1+ T cells" = "#CAB2D6",
+  "Late prolif: STMN1+ BIRC5+" = "#FDBF6F",
+  "Ribosomal/Mitochondrial/Degraded cells" = "#FF7F00",
+  "gamma-delta T cells" = "#6A3D9A"
+)
+
+cols3 <- c("CAR+" = "#66c2a5", "CAR-" = "#fc8d62")
+cols4 <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51")
+cols5 <- c("IP" = "#4E6AAB", "Peak" = "#e78ac3")
+cols6 <- c("CD4" = "#147D2C", "CD8" = "#F5C936", "Unknown" = "#7f7f7f")
+cols7 <- c("G1" = "#F8766D", "G2M" = "#00BA38", "S" = "#619CFF")
+cols8 <- c("#E69F00FF", "#56B4E9FF", "#009E73FF", "#F0E442FF")
+
+theme_set(theme_minimal())
+```
+
+# CAR populations
+
+## Patient 
+
+```{r , fig.height=10, fig.width=12, message=FALSE, warning=FALSE}
+# Load data
+integrated.obj <- readRDS("integrated.nd.obj.rds")
+
+integrated.obj <- subset(x = integrated.obj, subset = Class1 == "CAR-")
+all.genes <- rownames(integrated.obj)
+# integrated.obj_Scaled <- ScaleData(integrated.obj, features = all.genes)
+integrated.obj_Scaled <- integrated.obj
+
+integrated.obj <- integrated.obj_Scaled
+integrated.obj$cell_group <- Idents(integrated.obj)
+integrated.obj$sample <- paste0(integrated.obj$Timepoint, integrated.obj$Patient_id)
+integrated.obj$type <- integrated.obj$Patient_id
+
+table(integrated.obj$type, integrated.obj$sample)
+
+res <- integrated.obj |>
+  sccomp_glm(
+    formula_composition = ~type,
+    formula_variability = ~1,
+    percent_false_positive = 5,
+    .sample = sample,
+    .cell_group = cell_group
+  )
+
+plots <- plot(res)
+
+pdf("plots_res_CAR-_patient.pdf")
+plots
+plots$boxplot[[1]] + facet_wrap(~cell_group, nrow = 1, scales = "free")
+dev.off()
+
+plots$boxplot
+
+res
+
+rm(list = setdiff(ls(), "integrated.obj_Scaled"))
+```
+
+## Patient outcome
+
+```{r , fig.height=10, fig.width=12, message=FALSE, warning=FALSE}
+rm(list = setdiff(ls(), "integrated.obj_Scaled"))
+
+integrated.obj <- integrated.obj_Scaled
+
+integrated.obj$cell_group <- Idents(integrated.obj)
+integrated.obj$sample <- paste0(integrated.obj$Timepoint, integrated.obj$Patient_id)
+integrated.obj$type <- integrated.obj$ClinPat
+
+
+table(integrated.obj$type, integrated.obj$sample)
+
+res <- integrated.obj |>
+  sccomp_glm(
+    formula_composition = ~type,
+    formula_variability = ~1,
+    percent_false_positive = 5,
+    .sample = sample,
+    .cell_group = cell_group
+  )
+
+plots <- plot(res)
+
+pdf("plots_res_CAR-_patientclin.pdf")
+plots
+plots$boxplot[[1]] + facet_wrap(~cell_group, nrow = 1, scales = "free")
+dev.off()
+
+plots$boxplot
+
+res
+```
+
+## CAR +/-
+
+```{r niceplots, message=FALSE, warning=FALSE}
+library(gridExtra)
+rm(list = setdiff(ls(), "integrated.obj_Scaled"))
+
+expandy <- function(plot, ymin = 0, n = 10, legend = TRUE, max.y = NULL) {
+  library(plyr)
+  if (!max.y) {
+    max.y <- max(layer_data(plot)$upper, na.rm = TRUE)
+  }
+  scale_y_continuous(limits = ~ c(0, round_any(max.y, n, f = ceiling)), breaks = seq(0, round_any(max.y, n, f = ceiling), by = n), expand = c(0, 0))
+}
+
+scale_override <- function(which, scale) {
+  if (!is.numeric(which) || (length(which) != 1) || (which %% 1 != 0)) {
+    stop("which must be an integer of length 1")
+  }
+
+  if (is.null(scale$aesthetics) || !any(c("x", "y") %in% scale$aesthetics)) {
+    stop("scale must be an x or y position scale")
+  }
+
+  structure(list(which = which, scale = scale), class = "scale_override")
+}
+CustomFacetWrap <- ggproto(
+  "CustomFacetWrap", FacetWrap,
+  init_scales = function(self, layout, x_scale = NULL, y_scale = NULL, params) {
+    # make the initial x, y scales list
+    scales <- ggproto_parent(FacetWrap, self)$init_scales(layout, x_scale, y_scale, params)
+
+    if (is.null(params$scale_overrides)) {
+      return(scales)
+    }
+
+    max_scale_x <- length(scales$x)
+    max_scale_y <- length(scales$y)
+
+    # ... do some modification of the scales$x and scales$y here based on params$scale_overrides
+    for (scale_override in params$scale_overrides) {
+      which <- scale_override$which
+      scale <- scale_override$scale
+
+      if ("x" %in% scale$aesthetics) {
+        if (!is.null(scales$x)) {
+          if (which < 0 || which > max_scale_x) stop("Invalid index of x scale: ", which)
+          scales$x[[which]] <- scale$clone()
+        }
+      } else if ("y" %in% scale$aesthetics) {
+        if (!is.null(scales$y)) {
+          if (which < 0 || which > max_scale_y) stop("Invalid index of y scale: ", which)
+          scales$y[[which]] <- scale$clone()
+        }
+      } else {
+        stop("Invalid scale")
+      }
+    }
+
+    # return scales
+    scales
+  }
+)
+facet_wrap_custom <- function(..., scale_overrides = NULL) {
+  # take advantage of the sanitizing that happens in facet_wrap
+  facet_super <- facet_wrap(...)
+
+  # sanitize scale overrides
+  if (inherits(scale_overrides, "scale_override")) {
+    scale_overrides <- list(scale_overrides)
+  } else if (!is.list(scale_overrides) ||
+    !all(vapply(scale_overrides, inherits, "scale_override", FUN.VALUE = logical(1)))) {
+    stop("scale_overrides must be a scale_override object or a list of scale_override objects")
+  }
+
+  facet_super$params$scale_overrides <- scale_overrides
+
+  ggproto(NULL, CustomFacetWrap,
+    shrink = facet_super$shrink,
+    params = facet_super$params
+  )
+}
+```
+
+```{r , fig.height=10, fig.width=12, message=FALSE, warning=FALSE}
+integrated.obj <- integrated.obj_Scaled
+
+integrated.obj$cell_group <- Idents(integrated.obj)
+integrated.obj$sample <- paste0(integrated.obj$Timepoint, integrated.obj$Patient_id)
+integrated.obj$type <- integrated.obj$Timepoint
+
+table(integrated.obj$type, integrated.obj$sample)
+
+res <- integrated.obj |>
+  sccomp_glm(
+    formula_composition = ~type,
+    formula_variability = ~1,
+    percent_false_positive = 5,
+    .sample = sample,
+    .cell_group = cell_group
+  )
+
+as.data.frame(res)
+
+
+plots <- plot(res)
+
+plots$boxplot
+
+
+library(ggplot2)
+
+res_expected <- plots$boxplot[[1]]
+
+expected <- res_expected$plot_env$simulated_proportion
+expected$ID <- paste0(expected$sample, expected$cell_group, sep = "")
+
+observed <- res_expected$plot_env$data_proportion
+observed$ID <- paste0(observed$sample, observed$cell_group, sep = "")
+
+all_toplot <- left_join(observed, expected)
+
+plot1 <- ggplot(all_toplot, aes(x = type)) +
+  geom_boxplot(aes(y = generated_proportions), color = "grey", outlier.shape = NA, width = 1) +
+  geom_boxplot(aes(y = proportion, fill = cell_group), outlier.fill = NA, width = 2) +
+  theme_classic() +
+  theme(legend.position = "none")
+
+pdf("plot_proportions_CLuster_CAR-.pdf", width = 10, height = 2)
+plot1 + facet_wrap_custom(~cell_group, scales = "free", ncol = 11, scale_overrides = list(
+  scale_override(1, expandy(plot1, n = 0.1, max.y = 0.2)),
+  scale_override(2, expandy(plot1, n = 0.1, max.y = 0.4)),
+  scale_override(3, expandy(plot1, n = 0.1, max.y = 0.6)),
+  scale_override(4, expandy(plot1, n = 0.1, max.y = 0.3)),
+  scale_override(5, expandy(plot1, n = 0.1, max.y = 0.4)),
+  scale_override(6, expandy(plot1, n = 0.1, max.y = 0.4)),
+  scale_override(7, expandy(plot1, n = 0.05, max.y = 0.1)),
+  scale_override(8, expandy(plot1, n = 0.05, max.y = 0.2)),
+  scale_override(9, expandy(plot1, n = 0.2, max.y = 0.6)),
+  scale_override(10, expandy(plot1, n = 0.05, max.y = 0.15)),
+  scale_override(11, expandy(plot1, n = 0.05, max.y = 0.15))
+)) + scale_fill_manual(values = cols2)
+dev.off()
+```
+
+
+# CD4/8
+
+## Patient 
+
+```{r , fig.height=10, fig.width=12, message=FALSE, warning=FALSE}
+rm(list = setdiff(ls(), "integrated.obj_Scaled"))
+
+integrated.obj <- integrated.obj_Scaled
+integrated.obj$cell_group <- integrated.obj$final_criteria
+integrated.obj$sample <- paste0(integrated.obj$Timepoint, integrated.obj$Patient_id)
+integrated.obj$type <- integrated.obj$Patient_id
+
+table(integrated.obj$type, integrated.obj$sample)
+
+res <- integrated.obj |>
+  sccomp_glm(
+    formula_composition = ~type,
+    formula_variability = ~1,
+    percent_false_positive = 5,
+    .sample = sample,
+    .cell_group = cell_group
+  )
+
+plots <- plot(res)
+
+pdf("plots_res_CAR-_patient_cd48.pdf")
+plots
+plots$boxplot[[1]] + facet_wrap(~cell_group, nrow = 1, scales = "free")
+dev.off()
+
+plots$boxplot
+
+res
+```
+
+## Patient outcome
+
+```{r , fig.height=10, fig.width=12, message=FALSE, warning=FALSE}
+rm(list = setdiff(ls(), "integrated.obj_Scaled"))
+
+integrated.obj <- integrated.obj_Scaled
+
+integrated.obj$cell_group <- integrated.obj$final_criteria
+integrated.obj$sample <- paste0(integrated.obj$Timepoint, integrated.obj$Patient_id)
+integrated.obj$type <- integrated.obj$ClinPat
+
+
+table(integrated.obj$type, integrated.obj$sample)
+
+res <- integrated.obj |>
+  sccomp_glm(
+    formula_composition = ~type,
+    formula_variability = ~1,
+    percent_false_positive = 5,
+    .sample = sample,
+    .cell_group = cell_group
+  )
+
+plots <- plot(res)
+
+pdf("plots_res_CAR-_patientclin.pdf")
+plots
+plots$boxplot[[1]] + facet_wrap(~cell_group, nrow = 1, scales = "free")
+dev.off()
+
+plots$boxplot
+
+res
+```
+
+
+## CAR +/-
+
+```{r , fig.height=10, fig.width=12, message=FALSE, warning=FALSE}
+rm(list = setdiff(ls(), "integrated.obj_Scaled"))
+
+integrated.obj <- integrated.obj_Scaled
+
+integrated.obj$cell_group <- integrated.obj$final_criteria
+integrated.obj$sample <- paste0(integrated.obj$Timepoint, integrated.obj$Patient_id)
+integrated.obj$type <- integrated.obj$Timepoint
+
+table(integrated.obj$type, integrated.obj$sample)
+
+res <- integrated.obj |>
+  sccomp_glm(
+    formula_composition = ~type,
+    formula_variability = ~1,
+    percent_false_positive = 5,
+    .sample = sample,
+    .cell_group = cell_group
+  )
+
+plots <- plot(res)
+
+pdf("plots_res_CAR-_CAR-_cd48.pdf")
+plots
+plots$boxplot[[1]] + facet_wrap(~cell_group, nrow = 1, scales = "free")
+dev.off()
+
+plots$boxplot
+
+res
+```
+
+# Session Info
+
+```{r}
+sessionInfo()
+```
+

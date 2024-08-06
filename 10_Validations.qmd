@@ -1,0 +1,194 @@
+---
+title: "scCART-Validations"
+author:
+  - name: Mercedes Guerrero-Murillo
+    email: mguerrero@carrerasresearch.org
+date: "`r Sys.time()`"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE, fig.height = 7, fig.width = 7)
+```
+
+```{r colors}
+cols2 <- c(
+  "CD4+ Naive T cells" = "#33A02C",
+  "CD4+ CEntral/Effector memory T cells (CM/EM)" = "#B2DF8A",
+  "CD8+ cytotoxic T cells" = "#185B88",
+  "CD8+ Effector T cells (E)" = "#1F78B4",
+  "CD8+ Eff/Mem T cells (EM)" = "#A6CEE3",
+  "Early prolif: MCM3/5/7+ PCNA+ T cells" = "#FB9A99",
+  "Late prolif: histones enriched MKI67+ T cells" = "#E31A1C",
+  "Late prolif: CCNB1/2+ CDK1+ T cells" = "#CAB2D6",
+  "Late prolif: STMN1+ BIRC5+" = "#FDBF6F",
+  "Ribosomal/Mitochondrial/Degraded cells" = "#FF7F00",
+  "gamma-delta T cells" = "#6A3D9A"
+)
+
+cols3 <- c("CAR+" = "#66c2a5", "CAR-" = "#fc8d62")
+cols4 <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51")
+cols5 <- c("IP" = "#4E6AAB", "Peak" = "#e78ac3")
+cols6 <- c("CD4" = "#147D2C", "CD8" = "#F5C936", "Unknown" = "#7f7f7f")
+cols7 <- c("G1" = "#F8766D", "G2M" = "#00BA38", "S" = "#619CFF")
+cols8 <- c("#E69F00FF", "#56B4E9FF", "#009E73FF", "#F0E442FF")
+
+theme_set(theme_minimal())
+```
+
+```{r load packages, message=FALSE, warning=FALSE}
+library(openxlsx)
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+library(gtsummary)
+library(ggpubr)
+```
+
+# CD4/CD8 transduction assay
+
+```{r}
+# Read xslx generated with GFP+ CD4 or CD8 from the lab
+trans_Total <- readxl::read_xlsx("../CD4CD8LAB/CAR expression (Mer).xlsx")
+head(trans_Total)
+
+trans_Total$variable <- ifelse(grepl("CD4", trans_Total$variable), "CD4", "CD8")
+
+library(ggbeeswarm)
+library(ggpubr)
+
+ggplot(trans_Total, aes(x = variable, y = value, color = variable)) +
+  geom_beeswarm(cex = 3) +
+  scale_color_manual(values = cols6) +
+  theme_classic()
+```
+
+# CD4:CD8 ratio validation with patients 
+
+```{r , fig.height=10, fig.width=12, message=FALSE}
+cd4cd8 <- read.xlsx("../Inmuno/20240502.xlsx")
+cd4cd8 <- cd4cd8[!is.na(cd4cd8$Patient.code), ]
+
+cd4cd8$Ratio <- (cd4cd8$`CD4+CART+` / cd4cd8$`CD8+CART+`)
+
+Daytomonth <- function(dias) {
+  meses <- ceiling(dias / 30.44)
+  return(meses)
+}
+
+cd4cd8$EFS <- sapply(cd4cd8$`EFS.(days)`, function(x) Daytomonth(x))
+cd4cd8$PatientOut <- as.factor(ifelse(cd4cd8$`Response.(CR/PR/NR/PD)` == "CR", "CR", "Others"))
+colnames(cd4cd8) <- make.unique(colnames(cd4cd8))
+```
+
+## Barplot (Fig 2G)
+
+```{r}
+# Barplot
+ggplot(subset(cd4cd8, !is.na(Ratiio3)), aes(x = Ratiio3)) +
+  geom_bar(aes(fill = PatientOut), position = "fill") +
+  scale_y_continuous(labels = scales::percent)
+
+table(cd4cd8$PatientOut, cd4cd8$Ratiio3)
+
+chisq <- chisq.test(table(cd4cd8$PatientOut, cd4cd8$Ratiio3))
+chisq
+```
+
+## Scatter plot (Fig S2G)
+
+```{r}
+ggplot(cd4cd8, aes(x = `CD4+CART+`, y = `CD8+CART+`)) +
+  geom_point(aes(colour = factor(PatientOut)), size = 4) +
+  theme_classic() +
+  ylim(0, 100)
+```
+
+
+## EFS (Fig 2H)
+
+```{r}
+library("survival")
+library("survminer")
+
+cd4cd8_s <- cd4cd8
+
+fit <- survival::survfit(Surv(EFS, `Progresion`) ~ Ratio, data = cd4cd8)
+
+ggsurvplot(fit,
+  data = cd4cd8_s, size = 1, risk.table = TRUE,
+  palette = c("#E7B800", "#2E9FDF"),
+  pval = TRUE, legend.labs = c("Ratio>3", "Ratio<3"),
+  risk.table.height = 0.25, ggtheme = theme_bw()
+) + ggtitle("EFS")
+```
+
+## Persistence (Fig 2I)
+
+```{r}
+library(pzfx)
+library(reshape2)
+library(ggplot2)
+# Data provided by Clinic. GraphPad format
+df <- read_pzfx("CD4CD8_CAR Persistance.pzfx")
+head(df)
+df_melt <- melt(df)
+ggplot(df_melt, aes(x = variable, y = value)) +
+  geom_violin() +
+  theme_classic()
+```
+
+# Gamma delta validation with patients
+
+
+```{r}
+gammadelta_pt <- read.xlsx("../Salamanca/Gammadelta_pt.xlsx")
+```
+
+
+## Barplot (Fig 4H)
+
+```{r}
+# Barplot
+ggplot(gammadelta_pt, aes(x = Outcome)) +
+  geom_bar(aes(fill = gammadeltadect), position = "fill") +
+  scale_y_continuous(labels = scales::percent)
+
+table(gammadelta_pt$Outcome, gammadelta_pt$gammadeltadect)
+
+chisq <- chisq.test(table(gammadelta_pt$Outcome, gammadelta_pt$gammadeltadect))
+chisq
+```
+
+## EFS (Fig 4I)
+
+```{r}
+library("survival")
+library("survminer")
+
+fit <- survival::survfit(Surv(EFS, Outcome) ~ gammadeltadect, data = gammadelta_pt)
+
+ggsurvplot(fit,
+  data = cd4cd8_s, size = 1, risk.table = TRUE,
+  palette = c("#E7B800", "#2E9FDF"),
+  pval = TRUE, legend.labs = c("with_gd", "without_gd"),
+  risk.table.height = 0.25, ggtheme = theme_bw()
+) + ggtitle("PFS")
+```
+
+
+# Session Info
+
+```{r}
+sessionInfo()
+```
+
